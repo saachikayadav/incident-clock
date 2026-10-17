@@ -1,0 +1,24 @@
+# Render Blueprint: one Docker web service + one Postgres database.
+# Deploys only after GitHub checks (CI) pass on the commit.
+services:
+  - type: web
+    name: incident-clock
+    runtime: docker
+    plan: free
+    region: ohio
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: API_KEY
+        sync: false            # entered once in the Render dashboard; never committed
+      - key: DATABASE_URL
+        fromDatabase:
+          name: incident-clock-db
+          property: connectionString
+
+databases:
+  - name: incident-clock-db
+    plan: free
+    region: ohio
+    postgresMajorVersion: '16'

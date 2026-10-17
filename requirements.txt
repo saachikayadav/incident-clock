@@ -1,0 +1,8 @@
+# Runtime dependencies (pinned; Phase 2 Q8.1 "needs only version pinning").
+# starlette is pinned explicitly: fastapi allows >=0.46.0, and 0.46.x has published
+# advisories (pip-audit, 2026-10-17). Keep this pin >= the fixed versions.
+fastapi==0.143.3
+starlette==1.8.0
+uvicorn[standard]==0.54.0
+psycopg[binary]==3.3.6
+psycopg-pool==3.3.3

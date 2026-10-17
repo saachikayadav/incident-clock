@@ -1,0 +1,13 @@
+.git
+.github
+.venv
+venv
+reports
+.run
+tests
+fixtures
+docs
+scripts
+__pycache__
+*.pyc
+.env

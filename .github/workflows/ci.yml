@@ -1,0 +1,89 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Run the contract suite against this deployed base URL (uses the TARGET_API_KEY secret)"
+        required: false
+
+jobs:
+  static:
+    name: static checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -r requirements-dev.txt
+      - name: ruff lint
+        run: ruff check .
+      - name: ruff format
+        run: ruff format --check .
+      - name: mypy (strict)
+        run: mypy
+      - name: OpenAPI contract is valid
+        run: openapi-spec-validator openapi/contract.yaml
+      - name: dependency vulnerability scan
+        run: pip install pip-audit && pip-audit -r requirements.txt
+
+  contract-tests:
+    name: contract tests (local service + Postgres)
+    runs-on: ubuntu-latest
+    needs: static
+    services:
+      postgres:
+        image: postgres:16
+        env: {POSTGRES_PASSWORD: postgres, POSTGRES_DB: incidentclock}
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      API_KEY: ci-test-key
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/incidentclock
+      BASE_URL: http://127.0.0.1:8000
+      SERVICE_VERSION: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -r requirements-dev.txt
+      - name: start service
+        run: scripts/serve_local.sh start
+      - name: contract test suite (AC-01..05, AC-14, AC-16, REQ-07)
+        run: python -m pytest
+      - name: persistence across restart (AC-16)
+        run: python scripts/persistence_check.py --restart-cmd "scripts/serve_local.sh restart"
+      - name: operation status table (Q3.1)
+        run: python scripts/operation_status.py
+      - name: service log excerpt
+        if: always()
+        run: tail -n 40 reports/service.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reports
+          path: reports/
+
+  deployed:
+    name: contract tests against a deployed URL
+    if: github.event_name == 'workflow_dispatch' && inputs.base_url != ''
+    runs-on: ubuntu-latest
+    env:
+      BASE_URL: ${{ inputs.base_url }}
+      API_KEY: ${{ secrets.TARGET_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -r requirements-dev.txt
+      - run: curl -s --retry 10 --retry-delay 10 --retry-all-errors "$BASE_URL/health"
+      - run: python -m pytest
+      - run: python scripts/operation_status.py
+        if: always()
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: deployed-reports, path: reports/}

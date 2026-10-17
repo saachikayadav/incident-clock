@@ -1,0 +1,92 @@
+# IncidentClock
+
+Tracks SEC Form 8-K Item 1.05 cybersecurity incidents: incident records, supporting evidence,
+human materiality decisions, and the four-business-day filing deadline. Course project
+(Model-Based Agentic Software Engineering), implementing the pod's common interface
+**contract v1.0** (`openapi/contract.yaml`).
+
+**Current increment: Phase 3** — incident and evidence management behind the authenticated
+common API. Decisions, deadlines, filings, and timelines arrive in Phases 4–5.
+
+## Status by requirement
+
+| REQ | Capability | Phase 3 status | Evidence (tests) |
+|---|---|---|---|
+| REQ-01 | Create incident | complete | AC-01 `test_ac01_*` |
+| REQ-02 | Reject invalid incident | complete¹ | AC-02 `test_ac02_*` |
+| REQ-03 | Add evidence | complete | AC-04, AC-05 |
+| REQ-07 | No edits/deletes (405) | partial — incidents only; other resources arrive P4–5 | `test_req07_*` |
+| REQ-13 | API-key auth, HTTPS | complete in code; HTTPS pending deploy | AC-14 `test_ac14_*` |
+| REQ-14 | Error format, reset, RFC 3339/UTC | partial — for delivered ops | AC-01..05, AC-16 |
+| REQ-15 | Persistence, latency | complete locally; deployed run pending | AC-16, `scripts/persistence_check.py` |
+| REQ-04–06, 08–12 | Decisions, deadlines, filing, timeline | not started (P4–5); routes return 501 | — |
+
+¹ "Incident count unchanged" in AC-02 is not testable through contract v1.0 (docs/spec-issues.md ISSUE-01).
+
+## Operations
+
+| Operation | Status |
+|---|---|
+| `GET /health` | implemented (no key) |
+| `POST /incidents` | implemented |
+| `GET /incidents/{incidentId}` | implemented (`currentDecision`, `filing` always `null` until P4–5) |
+| `POST /incidents/{incidentId}/evidence` | implemented |
+| `POST /reset` | implemented |
+| `POST .../decisions`, `POST .../corrections`, `GET .../deadline-status`, `POST .../filing`, `GET .../timeline` | 401/404 enforced, otherwise `501 NOT_IMPLEMENTED` |
+| `GET /openapi.yaml` | serves the contract file verbatim (not part of the contract) |
+
+Regenerate this table from live probes: `python scripts/operation_status.py`.
+
+## Architecture
+
+FastAPI (Python 3.12) → explicit validation (`app/validation.py`) → `Store` (psycopg 3 pool) →
+PostgreSQL 16. Tables are append-only, enforced by database triggers; status is derived, not stored.
+Models: `docs/models.md` (rendered PNGs in `docs/diagrams/`).
+
+## Run locally
+
+```bash
+python -m venv .venv && . .venv/bin/activate
+pip install -r requirements-dev.txt
+export API_KEY=test-key DATABASE_URL=postgresql://postgres@localhost:5432/incidentclock BASE_URL=http://localhost:8000
+scripts/serve_local.sh start            # uvicorn on :8000, logs in reports/service.log
+```
+
+## Test any team's service (no code changes)
+
+```bash
+BASE_URL=https://<team-service> API_KEY=<shared key> python -m pytest      # contract suite
+BASE_URL=... API_KEY=... python scripts/operation_status.py                # Q3.1 table
+python scripts/persistence_check.py --restart-cmd "scripts/serve_local.sh restart"   # local restart
+python scripts/persistence_check.py --phase seed   # deployed: seed, restart in dashboard, then --phase verify
+```
+
+Every test starts with `POST /reset`. **Do not run the suite against a service whose data you need.**
+Tests marked `provisional` check behavior the pod has not fixed yet (docs/spec-issues.md); run
+`pytest -m "not provisional"` for contract-only results. JUnit XML is written to `reports/junit.xml`.
+
+## Static checks
+
+`ruff check . && ruff format --check . && mypy && openapi-spec-validator openapi/contract.yaml`
+— all run in CI (`.github/workflows/ci.yml`) before the contract tests.
+
+## Deploy (Render)
+
+`render.yaml` is a Blueprint: one Docker web service plus one Postgres 16 database (region `ohio`,
+free plan). `API_KEY` is entered once in the dashboard (`sync: false`); `DATABASE_URL` is wired
+from the database. `autoDeployTrigger: checksPass` deploys a commit only after GitHub checks pass.
+The running commit is returned in the `X-Service-Version` header (from `RENDER_GIT_COMMIT`).
+
+Free-plan constraints that podmates and graders should expect:
+- the service spins down after 15 minutes idle; the first request then takes about a minute;
+- the free Postgres database expires 30 days after creation (1 GB, no backups).
+
+## Observability
+
+One JSON line per request on stdout (Render log stream): `request_id`, `method`, `path`,
+`status`, `latency_ms`, `error_code`, `version`. Plus `startup`, `reset`, and `unhandled_exception`
+events. Bodies and `X-API-Key` are never logged. Every response carries `X-Request-ID`.
+
+## Known limitations
+
+See docs/spec-issues.md and the Phase 3 report draft (`docs/phase3-report.md`).

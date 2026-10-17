@@ -1,0 +1,433 @@
+openapi: 3.1.0
+info:
+  title: IncidentClock common interface contract
+  version: 1.0.0
+  description: >
+    Machine-readable transcription of the pod's Phase 2 common interface contract
+    (Phase 2 report, Sections 5.1 and 5.2, specification v1.0). This file adds no
+    operations, fields, or behaviors beyond that submission. Where the submission
+    leaves a value open (e.g. maximum string lengths), the schema leaves it open
+    too; see docs/spec-issues.md.
+
+    Behavior rules (Section 5.1): all resources are append-only; edit/delete requests
+    return 405. A new incident starts OPEN. Evidence may be added in any status.
+    Materiality is always entered by a human reviewer. MATERIAL moves the incident to
+    MATERIAL_PENDING_FILING and creates a four-business-day deadline. A filing may only
+    be recorded while MATERIAL_PENDING_FILING; afterwards the incident is FILED.
+    State-invalid operations return 409 and change nothing. Request timestamps are
+    RFC 3339 with an offset; response timestamps are UTC; dates are YYYY-MM-DD.
+
+security:
+  - ApiKey: []
+
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Checks that the service is running.
+      x-requirements: [REQ-13]
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/StatusMessage'}
+
+  /incidents:
+    post:
+      operationId: createIncident
+      summary: Creates a new cybersecurity incident.
+      x-requirements: [REQ-01, REQ-02]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/IncidentCreate'}
+            example:
+              title: Order system ransomware
+              description: Encryption detected on production servers.
+              discoveredAt: '2026-09-21T14:30:00-04:00'
+              reporterName: Security Operations
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/IncidentCreated'}
+              example: {incidentId: INC-001, status: OPEN}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  /incidents/{incidentId}:
+    parameters: [{$ref: '#/components/parameters/IncidentId'}]
+    get:
+      operationId: getIncident
+      summary: Gets the current information for an incident.
+      x-requirements: [REQ-01, REQ-03, REQ-04, REQ-06]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Incident'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /incidents/{incidentId}/evidence:
+    parameters: [{$ref: '#/components/parameters/IncidentId'}]
+    post:
+      operationId: addEvidence
+      summary: Adds evidence to an existing incident.
+      x-requirements: [REQ-03]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/EvidenceCreate'}
+            example:
+              category: BUSINESS_IMPACT
+              summary: Order processing was unavailable for three hours.
+              source: Operations report
+              collectedAt: '2026-09-21T17:30:00-04:00'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/EvidenceCreated'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /incidents/{incidentId}/decisions:
+    parameters: [{$ref: '#/components/parameters/IncidentId'}]
+    post:
+      operationId: recordDecision
+      summary: Records a human materiality decision supported by evidence.
+      x-requirements: [REQ-04, REQ-05, REQ-08, REQ-09]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DecisionCreate'}
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DecisionCreated'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+
+  /incidents/{incidentId}/corrections:
+    parameters: [{$ref: '#/components/parameters/IncidentId'}]
+    post:
+      operationId: recordCorrection
+      summary: Replaces the current decision while preserving the previous decision in history.
+      x-requirements: [REQ-06, REQ-08, REQ-09]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CorrectionCreate'}
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DecisionCreated'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+
+  /incidents/{incidentId}/deadline-status:
+    parameters:
+      - {$ref: '#/components/parameters/IncidentId'}
+      - name: as_of
+        in: query
+        required: false
+        description: Evaluation time for repeatable testing (RFC 3339 with offset).
+        schema: {type: string, format: date-time}
+    get:
+      operationId: getDeadlineStatus
+      summary: Gets the current deadline status.
+      x-requirements: [REQ-09, REQ-10]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DeadlineStatus'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /incidents/{incidentId}/filing:
+    parameters: [{$ref: '#/components/parameters/IncidentId'}]
+    post:
+      operationId: recordFiling
+      summary: Records an 8-K filing for a material incident.
+      x-requirements: [REQ-08, REQ-11]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FilingCreate'}
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FilingCreated'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+
+  /incidents/{incidentId}/timeline:
+    parameters: [{$ref: '#/components/parameters/IncidentId'}]
+    get:
+      operationId: getTimeline
+      summary: Gets the incident timeline and evidence summary.
+      x-requirements: [REQ-12]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Timeline'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /reset:
+    post:
+      operationId: reset
+      summary: Clears all stored test data so automated tests can start from a known state.
+      x-requirements: [REQ-14]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/StatusMessage'}
+              example: {status: RESET_COMPLETE}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+components:
+  securitySchemes:
+    ApiKey: {type: apiKey, in: header, name: X-API-Key}
+
+  parameters:
+    IncidentId:
+      name: incidentId
+      in: path
+      required: true
+      schema: {type: string}
+
+  responses:
+    BadRequest:
+      description: Invalid input.
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    Unauthorized:
+      description: Missing or invalid API key.
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    NotFound:
+      description: Resource does not exist.
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    Conflict:
+      description: Operation not allowed in the incident's current state; nothing changed.
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+
+  schemas:
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error: {type: string, description: Error code}
+        message: {type: string}
+
+    StatusMessage:
+      type: object
+      required: [status]
+      properties:
+        status: {type: string}
+
+    UtcDateTime:
+      type: string
+      format: date-time
+      pattern: 'Z$'
+
+    IncidentStatus:
+      type: string
+      enum: [OPEN, NOT_MATERIAL, MATERIAL_PENDING_FILING, FILED]
+
+    EvidenceCategory:
+      type: string
+      enum: [TECHNICAL, BUSINESS_IMPACT, LEGAL, OTHER]
+
+    DecisionValue:
+      type: string
+      enum: [MATERIAL, NOT_MATERIAL]
+
+    IncidentCreate:
+      type: object
+      required: [title, description, discoveredAt, reporterName]
+      properties:
+        title: {type: string, minLength: 1, description: 'Max length agreed by both teams (open).'}
+        description: {type: string, minLength: 1, description: 'Max length agreed by both teams (open).'}
+        discoveredAt: {type: string, format: date-time, description: RFC 3339 with offset; not in the future.}
+        reporterName: {type: string, minLength: 1}
+
+    IncidentCreated:
+      type: object
+      required: [incidentId, status]
+      properties:
+        incidentId: {type: string}
+        status: {$ref: '#/components/schemas/IncidentStatus'}
+
+    Evidence:
+      type: object
+      required: [evidenceId, category, summary, source, collectedAt, recordedAt]
+      properties:
+        evidenceId: {type: string}
+        category: {$ref: '#/components/schemas/EvidenceCategory'}
+        summary: {type: string}
+        source: {type: string}
+        collectedAt: {$ref: '#/components/schemas/UtcDateTime'}
+        recordedAt: {$ref: '#/components/schemas/UtcDateTime'}
+
+    EvidenceCreate:
+      type: object
+      required: [category, summary, source, collectedAt]
+      properties:
+        category: {$ref: '#/components/schemas/EvidenceCategory'}
+        summary: {type: string, minLength: 1}
+        source: {type: string, minLength: 1}
+        collectedAt: {type: string, format: date-time}
+
+    EvidenceCreated:
+      type: object
+      required: [evidenceId, recordedAt]
+      properties:
+        evidenceId: {type: string}
+        recordedAt: {$ref: '#/components/schemas/UtcDateTime'}
+
+    Decision:
+      type: object
+      required: [decisionId, decision, determinedAt, decidedBy, rationale, evidenceIds, deadline]
+      properties:
+        decisionId: {type: string}
+        decision: {$ref: '#/components/schemas/DecisionValue'}
+        determinedAt: {$ref: '#/components/schemas/UtcDateTime'}
+        decidedBy: {type: string}
+        rationale: {type: string}
+        evidenceIds: {type: array, items: {type: string}, minItems: 1}
+        deadline: {type: [string, 'null'], format: date}
+
+    DecisionCreate:
+      type: object
+      required: [decision, determinedAt, decidedBy, rationale, evidenceIds]
+      properties:
+        decision: {$ref: '#/components/schemas/DecisionValue'}
+        determinedAt: {type: string, format: date-time}
+        decidedBy: {type: string, minLength: 1}
+        rationale: {type: string, minLength: 1}
+        evidenceIds: {type: array, items: {type: string}, minItems: 1}
+
+    CorrectionCreate:
+      allOf:
+        - $ref: '#/components/schemas/DecisionCreate'
+        - type: object
+          required: [correctsDecisionId]
+          properties:
+            correctsDecisionId: {type: string}
+
+    DecisionCreated:
+      type: object
+      required: [decisionId, status, deadline]
+      properties:
+        decisionId: {type: string}
+        status: {$ref: '#/components/schemas/IncidentStatus'}
+        deadline: {type: [string, 'null'], format: date}
+
+    Filing:
+      type: object
+      required: [filingId, filedAt, accessionNumber, timeliness, businessDaysLate]
+      properties:
+        filingId: {type: string}
+        filedAt: {$ref: '#/components/schemas/UtcDateTime'}
+        accessionNumber: {type: string}
+        timeliness: {type: string, enum: [ON_TIME, LATE]}
+        businessDaysLate: {type: integer, minimum: 0}
+
+    FilingCreate:
+      type: object
+      required: [filedAt, accessionNumber]
+      properties:
+        filedAt: {type: string, format: date-time}
+        accessionNumber: {type: string, minLength: 1}
+
+    FilingCreated:
+      type: object
+      required: [filingId, status, timeliness, businessDaysLate]
+      properties:
+        filingId: {type: string}
+        status: {$ref: '#/components/schemas/IncidentStatus'}
+        timeliness: {type: string, enum: [ON_TIME, LATE]}
+        businessDaysLate: {type: integer, minimum: 0}
+
+    Incident:
+      type: object
+      required: [incidentId, title, description, discoveredAt, reporterName, status, evidence, currentDecision, filing]
+      properties:
+        incidentId: {type: string}
+        title: {type: string}
+        description: {type: string}
+        discoveredAt: {$ref: '#/components/schemas/UtcDateTime'}
+        reporterName: {type: string}
+        status: {$ref: '#/components/schemas/IncidentStatus'}
+        evidence: {type: array, items: {$ref: '#/components/schemas/Evidence'}}
+        currentDecision:
+          oneOf: [{$ref: '#/components/schemas/Decision'}, {type: 'null'}]
+        filing:
+          oneOf: [{$ref: '#/components/schemas/Filing'}, {type: 'null'}]
+
+    DeadlineStatus:
+      type: object
+      required: [status, deadline, businessDays]
+      properties:
+        status: {type: string, enum: [NOT_APPLICABLE, PENDING, OVERDUE]}
+        deadline: {type: [string, 'null'], format: date}
+        businessDays: {type: integer}
+
+    HistoryEvent:
+      type: object
+      required: [eventType, recordedAt, referenceId]
+      properties:
+        eventType:
+          type: string
+          enum: [INCIDENT_CREATED, EVIDENCE_ADDED, DECISION_RECORDED, DECISION_CORRECTED, FILING_RECORDED]
+        recordedAt: {$ref: '#/components/schemas/UtcDateTime'}
+        referenceId: {type: string}
+
+    EvidenceCounts:
+      type: object
+      required: [technical, businessImpact, legal, other]
+      properties:
+        technical: {type: integer, minimum: 0}
+        businessImpact: {type: integer, minimum: 0}
+        legal: {type: integer, minimum: 0}
+        other: {type: integer, minimum: 0}
+
+    Timeline:
+      type: object
+      required: [incidentId, events, evidenceCounts, discoveryToDeterminationDays]
+      properties:
+        incidentId: {type: string}
+        events: {type: array, items: {$ref: '#/components/schemas/HistoryEvent'}}
+        evidenceCounts: {$ref: '#/components/schemas/EvidenceCounts'}
+        discoveryToDeterminationDays: {type: [number, 'null']}

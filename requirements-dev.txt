@@ -1,0 +1,11 @@
+-r requirements.txt
+# Test and static-check tooling
+pytest==9.1.1
+httpx==0.28.1
+jsonschema==4.26.0
+rfc3339-validator==0.1.4
+PyYAML==6.0.3
+openapi-spec-validator==0.9.0
+ruff==0.17.1
+mypy==2.4.0
+types-PyYAML

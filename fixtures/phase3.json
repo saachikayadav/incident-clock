@@ -1,0 +1,31 @@
+{
+  "_comment": "Synthetic Phase 3 fixtures (Phase 2, Q4.2). No real company or personal data. Field values follow the Phase 2 Section 5.2 examples.",
+  "validIncident": {
+    "title": "Order system ransomware",
+    "description": "Encryption detected on production servers.",
+    "discoveredAt": "2025-09-22T14:30:00-04:00",
+    "reporterName": "Security Operations"
+  },
+  "validEvidence": {
+    "category": "TECHNICAL",
+    "summary": "EDR alert: mass file encryption on order-db-01.",
+    "source": "Wazuh alert 51032",
+    "collectedAt": "2025-09-22T15:05:00-04:00"
+  },
+  "threeTechnicalEvidence": [
+    {"category": "TECHNICAL", "summary": "EDR alert: mass file encryption.", "source": "Wazuh alert 51032", "collectedAt": "2025-09-22T15:05:00-04:00"},
+    {"category": "TECHNICAL", "summary": "Ransom note found on file share.", "source": "IR ticket SEC-412", "collectedAt": "2025-09-22T15:40:00-04:00"},
+    {"category": "TECHNICAL", "summary": "Lateral movement from VPN gateway.", "source": "Firewall log export", "collectedAt": "2025-09-22T16:10:00Z"}
+  ],
+  "businessImpactEvidence": {
+    "category": "BUSINESS_IMPACT",
+    "summary": "Order processing was unavailable for three hours.",
+    "source": "Operations report",
+    "collectedAt": "2025-09-22T17:30:00-04:00"
+  },
+  "acceptance_AC02": [
+    {"case": "missing description", "field": "description", "body": {"title": "T", "discoveredAt": "2025-09-22T14:30:00-04:00", "reporterName": "R"}},
+    {"case": "timestamp without offset", "field": "discoveredAt", "body": {"title": "T", "description": "D", "discoveredAt": "2025-09-22T14:30:00", "reporterName": "R"}},
+    {"case": "discovery in the future", "field": "discoveredAt", "body": {"title": "T", "description": "D", "discoveredAt": "2099-01-01T00:00:00Z", "reporterName": "R"}}
+  ]
+}
