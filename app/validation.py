@@ -24,15 +24,15 @@ _RFC3339 = re.compile(r"^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]
 EVIDENCE_CATEGORIES = ("TECHNICAL", "BUSINESS_IMPACT", "LEGAL", "OTHER")
 
 
-def parse_json_object(raw: bytes) -> dict[str, Any]:
+def parse_json_object(raw: bytes, source: str | None = None) -> dict[str, Any]:
     if not raw.strip():
-        raise ApiError(400, "INVALID_BODY", "request body must be a JSON object")
+        raise ApiError(400, "INVALID_BODY", "request body must be a JSON object", source)
     try:
         data = json.loads(raw)
     except (ValueError, UnicodeDecodeError):
-        raise ApiError(400, "INVALID_BODY", "request body is not valid JSON") from None
+        raise ApiError(400, "INVALID_BODY", "request body is not valid JSON", source) from None
     if not isinstance(data, dict):
-        raise ApiError(400, "INVALID_BODY", "request body must be a JSON object")
+        raise ApiError(400, "INVALID_BODY", "request body must be a JSON object", source)
     return data
 
 

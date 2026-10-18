@@ -1,0 +1,9 @@
+# Tester service runtime (runs the contract suite in tests/ against a target system)
+fastapi==0.143.3
+starlette==1.8.0
+uvicorn[standard]==0.54.0
+httpx==0.28.1
+pytest==9.1.1
+jsonschema==4.26.0
+rfc3339-validator==0.1.4
+PyYAML==6.0.3

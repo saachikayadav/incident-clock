@@ -1,0 +1,95 @@
+openapi: 3.1.1
+info:
+  title: IncidentClock system - course testing endpoints
+  version: 1.0.0
+  description: >
+    System side of the course cross-team testing interface. The project API is the
+    pod contract in contract.yaml (v1.0, unchanged). Both files describe the same
+    deployed system base URL.
+
+    Preparation: POST /test/setup clears all project data (as POST /reset does),
+    registers the session, and starts per-session code coverage. One session is
+    active at a time; a new setup supersedes the previous one, whose final coverage
+    stays readable through GET /test/report. Project requests carry no session ID
+    (contract v1.0 has none) and always act on the active session.
+
+    Access: every endpoint here requires the pod's shared test key in X-API-Key
+    (obtained from the team, never placed in URLs or the registry spreadsheet).
+servers:
+  - url: https://REPLACE-WITH-SYSTEM-BASE-URL
+security:
+  - ApiKey: []
+paths:
+  /test/setup:
+    post:
+      summary: Prepare a fresh state and coverage measurement for the session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [session_id]
+              properties:
+                session_id: {type: string, minLength: 1, maxLength: 200}
+                setup: {type: object, description: 'Pod-defined starting data; none is defined, send {}'}
+      responses:
+        '201':
+          description: Ready
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [session_id]
+                properties: {session_id: {type: string}}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '500': {$ref: '#/components/responses/Error'}
+  /test/report:
+    get:
+      summary: Code coverage measured for this session since setup
+      parameters:
+        - {name: session_id, in: query, required: true, schema: {type: string, minLength: 1}}
+      responses:
+        '200':
+          description: Coverage
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [session_id, coverage]
+                properties:
+                  session_id: {type: string}
+                  coverage:
+                    type: object
+                    required: [code]
+                    properties:
+                      code: {$ref: '#/components/schemas/Measure'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+components:
+  securitySchemes:
+    ApiKey: {type: apiKey, in: header, name: X-API-Key}
+  responses:
+    Error:
+      description: Error with message and source
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+  schemas:
+    Error:
+      type: object
+      required: [message, source]
+      properties:
+        message: {type: string, minLength: 1}
+        source: {type: string, enum: [tester, system, communication, unknown]}
+        error: {type: string, description: Machine-readable code (additional field)}
+    Measure:
+      type: object
+      required: [covered, total, basis]
+      properties:
+        covered: {type: [integer, 'null'], minimum: 0}
+        total: {type: [integer, 'null'], minimum: 0}
+        basis: {type: string, minLength: 1}

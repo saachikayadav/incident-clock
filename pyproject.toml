@@ -26,5 +26,5 @@ ignore = ["S101"]  # assert is idiomatic in pytest and used as an invariant guar
 [tool.mypy]
 python_version = "3.12"
 strict = true
-files = ["app", "scripts", "tests"]
+files = ["app", "scripts", "tests", "tester", "tester_tests"]
 ignore_missing_imports = true

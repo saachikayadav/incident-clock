@@ -17,3 +17,18 @@ cross-team results can be interpreted, and the tests that depend on it are marke
 | ISSUE-08 | REQ-13 `/health` | Contract lists no error for `/health`. | 503 `{status: "DATABASE_UNAVAILABLE"}` when the database is unreachable (body still matches `{status}`). | None for healthy services. | Note in v1.1. |
 | ISSUE-09 | Phase sequencing | How a service should answer operations scheduled for later phases is unspecified. | Auth and 404 enforced; otherwise 501 `NOT_IMPLEMENTED`. | Cross-team suites will see 501, not a contract violation of an implemented op. | Pod agrees 501 for phased delivery. |
 | ISSUE-10 | AC-08 | "GET the decision history" — no operation returns history (GET incident returns only `currentDecision`; timeline returns event refs only). | — (Phase 5) | AC-08 unverifiable as written. | Resolve with ISSUE-05 before Phase 5. |
+
+## Course cross-team testing interface (added 2026-10-18)
+
+The course interface (tester `/test/setup|run|report`, system `/test/setup|report`) leaves these
+items to the pod specification. None is agreed yet; interim choices below are implemented and
+described in `openapi/system-test-interface.yaml` and `openapi/tester.yaml`.
+
+| ID | Item the pod must define | Interim behavior (this team) | Why it matters |
+|---|---|---|---|
+| ISSUE-11 | **Component list** for component coverage | The 10 operations of contract v1.0; an operation counts when a request reached its own logic (response not 401/404/405/501). | Teams that pick different lists report incomparable component coverage. |
+| ISSUE-12 | **Session model**: how project requests identify the prepared state; concurrency | Contract v1.0 has no session field, so one session is active per system; `/test/setup` clears project data and supersedes the previous session (its final coverage stays readable). Runs against one target must not overlap. | Two testers hitting the same system at once would wipe each other's data (every test also calls `POST /reset`). |
+| ISSUE-13 | **Starting data** in system `setup` | None defined; `{}` sent and accepted. | Needed once Phase 4 tests require pre-loaded incidents. |
+| ISSUE-14 | **Access**: how a tester obtains a target's key | System `/test/*` and project endpoints require the shared pod key in `X-API-Key`. Tester endpoints are open, but the tester only sends a key to targets listed in its `TARGETS` setting; other `target_url` values get 400. | Keys must not go in URLs or the registry; each team must register podmate URLs in its tester. |
+| ISSUE-15 | **Which tests form the shared plan** | Our tester runs `tests/` with `-m "not provisional"`, so tests of behaviour the pod has not fixed (ISSUE-02/03/07) never count against a podmate. | Prevents failing another team on our own interim choices. |
+| ISSUE-16 | **Project-call time limits and retries** | 60 s per request (covers free-plan cold start), no retries; tester setup waits up to 120 s for system setup; run limit 600 s. | The course spec leaves these to the pod. |

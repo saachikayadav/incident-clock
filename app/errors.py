@@ -6,16 +6,19 @@ from fastapi.responses import JSONResponse
 
 
 class ApiError(Exception):
-    def __init__(self, status: int, code: str, message: str) -> None:
+    def __init__(self, status: int, code: str, message: str, source: str | None = None) -> None:
         super().__init__(message)
         self.status = status
         self.code = code
         self.message = message
+        self.source = source  # set on /test/* endpoints (course testing interface)
 
 
-def error_response(status: int, code: str, message: str) -> JSONResponse:
-    resp = JSONResponse(status_code=status, content={"error": code, "message": message})
-    return resp
+def error_response(status: int, code: str, message: str, source: str | None = None) -> JSONResponse:
+    content = {"error": code, "message": message}
+    if source is not None:
+        content["source"] = source
+    return JSONResponse(status_code=status, content=content)
 
 
 def field_code(field: str) -> str:

@@ -25,10 +25,12 @@ jobs:
         run: ruff format --check .
       - name: mypy (strict)
         run: mypy
-      - name: OpenAPI contract is valid
-        run: openapi-spec-validator openapi/contract.yaml
-      - name: dependency vulnerability scan
-        run: pip install pip-audit && pip-audit -r requirements.txt
+      - name: OpenAPI documents are valid (pod contract, system test endpoints, tester)
+        run: openapi-spec-validator openapi/contract.yaml openapi/system-test-interface.yaml openapi/tester.yaml
+      - name: dependency vulnerability scan (system and tester images)
+        run: pip install pip-audit && pip-audit -r requirements.txt && pip-audit -r requirements-tester.txt
+      - name: tester self-tests (report logic, error sources, session rules)
+        run: python -m pytest tester_tests -o addopts=""
 
   contract-tests:
     name: contract tests (local service + Postgres)
@@ -59,6 +61,15 @@ jobs:
         run: python scripts/persistence_check.py --restart-cmd "scripts/serve_local.sh restart"
       - name: operation status table (Q3.1)
         run: python scripts/operation_status.py
+      - name: system /test/setup and /test/report
+        run: SYSTEM_BASE_URL="$BASE_URL" python -m pytest tester_tests/test_system_interface.py -o addopts=""
+      - name: tester end-to-end (course interface - tester -> system, as graders call it)
+        env:
+          TARGETS: '{"http://127.0.0.1:8000": "ci-test-key"}'
+        run: |
+          nohup python -m uvicorn tester.main:app --host 127.0.0.1 --port 9000 > reports/tester.log 2>&1 &
+          for _ in $(seq 1 30); do curl -sf http://127.0.0.1:9000/health > /dev/null && break; sleep 1; done
+          python scripts/cross_team_run.py --tester http://127.0.0.1:9000 --target http://127.0.0.1:8000 --strict
       - name: service log excerpt
         if: always()
         run: tail -n 40 reports/service.log

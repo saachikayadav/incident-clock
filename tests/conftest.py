@@ -11,6 +11,7 @@ Nothing here imports the application. Every test starts from POST /reset
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -25,6 +26,41 @@ from jsonschema import Draft202012Validator, FormatChecker
 BASE_URL = os.environ.get("BASE_URL", "http://localhost:8000").rstrip("/")
 API_KEY = os.environ.get("API_KEY", "")
 TIMEOUT = float(os.environ.get("TEST_TIMEOUT_SECONDS", "30"))
+# Set by the deployed tester service: one JSON line per request (method, path, status),
+# used to compute component coverage. Unset for ordinary local/CI runs.
+TRACE_FILE = os.environ.get("TESTER_TRACE_FILE")
+
+
+class TargetSystemError(Exception):
+    """The target answered with an unexpected 5xx: an internal failure, not a contract mismatch.
+
+    501 is excluded because it is the documented reply for operations scheduled for later
+    phases (docs/spec-issues.md ISSUE-09); tests evaluate it like any other response.
+    """
+
+
+def _on_response(response: httpx.Response) -> None:
+    if TRACE_FILE:
+        with open(TRACE_FILE, "a") as fh:
+            fh.write(
+                json.dumps(
+                    {
+                        "method": response.request.method,
+                        "path": response.request.url.path,
+                        "status": response.status_code,
+                    }
+                )
+                + "\n"
+            )
+    if response.status_code >= 500 and response.status_code != 501:
+        response.read()
+        raise TargetSystemError(
+            f"{response.request.method} {response.request.url.path} returned {response.status_code}: "
+            f"{response.text[:300]}"
+        )
+
+
+HOOKS = {"response": [_on_response]}
 
 CONTRACT = yaml.safe_load((Path(__file__).resolve().parent.parent / "openapi" / "contract.yaml").read_text())
 
@@ -35,7 +71,7 @@ def pytest_report_header(config: pytest.Config) -> str:
 
 @pytest.fixture(scope="session")
 def anon() -> Iterator[httpx.Client]:
-    with httpx.Client(base_url=BASE_URL, timeout=TIMEOUT) as c:
+    with httpx.Client(base_url=BASE_URL, timeout=TIMEOUT, event_hooks=HOOKS) as c:
         yield c
 
 
@@ -43,7 +79,7 @@ def anon() -> Iterator[httpx.Client]:
 def api(anon: httpx.Client) -> Iterator[httpx.Client]:
     if not API_KEY:
         pytest.exit("API_KEY environment variable is required", returncode=2)
-    with httpx.Client(base_url=BASE_URL, timeout=TIMEOUT, headers={"X-API-Key": API_KEY}) as c:
+    with httpx.Client(base_url=BASE_URL, timeout=TIMEOUT, headers={"X-API-Key": API_KEY}, event_hooks=HOOKS) as c:
         yield c
 
 

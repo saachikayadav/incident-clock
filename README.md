@@ -6,7 +6,16 @@ human materiality decisions, and the four-business-day filing deadline. Course p
 **contract v1.0** (`openapi/contract.yaml`).
 
 **Current increment: Phase 3** — incident and evidence management behind the authenticated
-common API. Decisions, deadlines, filings, and timelines arrive in Phases 4–5.
+common API, plus the course cross-team testing interface: a deployed **tester** service and the
+system's `/test/setup` / `/test/report` endpoints. Decisions, deadlines, filings, and timelines
+arrive in Phases 4–5.
+
+Two deployed services (see `render.yaml`):
+
+| Service | Base URL | Description |
+|---|---|---|
+| System | `https://<system>.onrender.com` | Pod contract v1.0 (`openapi/contract.yaml`) + `/test/setup`, `/test/report` (`openapi/system-test-interface.yaml`) |
+| Tester | `https://<tester>.onrender.com` | `/test/setup`, `/test/run`, `/test/report` (`openapi/tester.yaml`) |
 
 ## Status by requirement
 
@@ -34,6 +43,7 @@ common API. Decisions, deadlines, filings, and timelines arrive in Phases 4–5.
 | `POST /reset` | implemented |
 | `POST .../decisions`, `POST .../corrections`, `GET .../deadline-status`, `POST .../filing`, `GET .../timeline` | 401/404 enforced, otherwise `501 NOT_IMPLEMENTED` |
 | `GET /openapi.yaml` | serves the contract file verbatim (not part of the contract) |
+| `POST /test/setup`, `GET /test/report` | course testing interface (key required): clears project data, starts per-session line coverage, reports it |
 
 Regenerate this table from live probes: `python scripts/operation_status.py`.
 
@@ -65,16 +75,52 @@ Every test starts with `POST /reset`. **Do not run the suite against a service w
 Tests marked `provisional` check behavior the pod has not fixed yet (docs/spec-issues.md); run
 `pytest -m "not provisional"` for contract-only results. JUnit XML is written to `reports/junit.xml`.
 
+## Course cross-team testing interface
+
+**Tester** (`tester/`): `POST /test/setup {"target_url"}` prepares the target through its
+`/test/setup` and returns a session ID; `POST /test/run {"session_id"}` runs the test plan once
+and returns the suite report; `GET /test/report?session_id=` returns the stored report (409
+until the suite ends). The test plan *is* the contract suite in `tests/`, run in a subprocess
+with `-m "not provisional"`, so CI, local runs and cross-team runs share the same oracles.
+
+- Outcomes: `pass`; `fail` (answer differs from the contract); `error` with `source`
+  `system` (unexpected 5xx or failed precondition), `communication` (timeout / unreachable),
+  `tester` (abort), `unknown`; `skip` (with reason).
+- Coverage: `code` comes from the target's `/test/report`; `component` = contract operations
+  actually reached (ISSUE-11); `system` = AC-01..AC-16 with at least one evaluated test.
+- Access: the tester sends a key only to targets in its `TARGETS` setting
+  (`{"https://system-base": "key"}`); any other `target_url` gets 400.
+- Sessions and reports are in memory: a restart or free-plan spin-down clears them.
+
+**System** (`app/main.py`, `app/coverage_session.py`): `/test/setup` clears project data,
+registers the session (IDs are never reusable: 409) and restarts line coverage of `app/`
+(coverage.py `sysmon` core, so worker threads are traced). `/test/report` returns
+`coverage.code`. One session is active; a new setup supersedes it (ISSUE-12).
+
+Run a cross-team check exactly as graders do, and keep the report:
+
+```bash
+python scripts/cross_team_run.py --tester https://<tester> --target https://<system>
+```
+
+Registry notes (maximum times, free plan, including a cold start of about a minute):
+tester setup 150 s, tester run 600 s, system setup 90 s.
+
 ## Static checks
 
-`ruff check . && ruff format --check . && mypy && openapi-spec-validator openapi/contract.yaml`
-— all run in CI (`.github/workflows/ci.yml`) before the contract tests.
+`ruff check . && ruff format --check . && mypy && openapi-spec-validator openapi/*.yaml`,
+`pip-audit` on both requirement sets, and the tester self-tests (`pytest tester_tests`) —
+all run in CI (`.github/workflows/ci.yml`) before the contract tests. CI then starts the system,
+runs the contract suite, the persistence check, the system `/test/*` checks, and a full
+tester → system run through `scripts/cross_team_run.py --strict`.
 
 ## Deploy (Render)
 
-`render.yaml` is a Blueprint: one Docker web service plus one Postgres 16 database (region `ohio`,
-free plan). `API_KEY` is entered once in the dashboard (`sync: false`); `DATABASE_URL` is wired
-from the database. `autoDeployTrigger: checksPass` deploys a commit only after GitHub checks pass.
+`render.yaml` is a Blueprint: the system (Docker web service + Postgres 16) and the tester
+(Docker web service, `Dockerfile.tester`), region `ohio`, free plan. `API_KEY` (system) and
+`TARGETS` (tester) are entered once in the dashboard (`sync: false`); `DATABASE_URL` is wired
+from the database. After the first deploy, set the tester's `TARGETS` to include our own system
+URL and each podmate system URL with its key. `autoDeployTrigger: checksPass` deploys a commit only after GitHub checks pass.
 The running commit is returned in the `X-Service-Version` header (from `RENDER_GIT_COMMIT`).
 
 Free-plan constraints that podmates and graders should expect:

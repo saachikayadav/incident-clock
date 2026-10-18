@@ -12,6 +12,7 @@ from typing import Any
 
 from psycopg import Connection
 from psycopg.rows import DictRow, dict_row
+from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
 from .validation import EvidenceInput, IncidentInput
@@ -114,3 +115,36 @@ class Store:
     def reset(self) -> None:
         with self.pool.connection() as conn, conn.transaction():
             conn.execute("TRUNCATE events, evidence, incidents RESTART IDENTITY")
+
+    # ---- course testing interface: sessions ------------------------------
+
+    def get_test_session(self, session_id: str) -> dict[str, Any] | None:
+        with self.pool.connection() as conn:
+            return conn.execute(
+                "SELECT session_id, created_at, frozen_coverage FROM test_sessions WHERE session_id = %s",
+                (session_id,),
+            ).fetchone()
+
+    def active_test_session(self) -> str | None:
+        with self.pool.connection() as conn:
+            row = conn.execute("SELECT session_id FROM test_sessions ORDER BY seq DESC LIMIT 1").fetchone()
+        return None if row is None else str(row["session_id"])
+
+    def prepare_test_session(self, session_id: str, previous_coverage: dict[str, Any] | None) -> bool:
+        """Freeze the previous session's coverage, clear project data, register the new session.
+
+        Returns False (and changes nothing) if the session ID was already used.
+        """
+        with self.pool.connection() as conn, conn.transaction():
+            conn.execute("LOCK TABLE test_sessions IN EXCLUSIVE MODE")
+            exists = conn.execute("SELECT 1 FROM test_sessions WHERE session_id = %s", (session_id,)).fetchone()
+            if exists:
+                return False
+            if previous_coverage is not None:
+                conn.execute(
+                    "UPDATE test_sessions SET frozen_coverage = %s WHERE seq = (SELECT max(seq) FROM test_sessions)",
+                    (Jsonb(previous_coverage),),
+                )
+            conn.execute("TRUNCATE events, evidence, incidents RESTART IDENTITY")
+            conn.execute("INSERT INTO test_sessions (session_id) VALUES (%s)", (session_id,))
+        return True

@@ -55,3 +55,14 @@ CREATE OR REPLACE TRIGGER evidence_append_only BEFORE UPDATE OR DELETE ON eviden
     FOR EACH ROW EXECUTE FUNCTION reject_mutation();
 CREATE OR REPLACE TRIGGER events_append_only BEFORE UPDATE OR DELETE ON events
     FOR EACH ROW EXECUTE FUNCTION reject_mutation();
+
+-- Course cross-team testing interface: sessions prepared by POST /test/setup.
+-- Not cleared by POST /reset, so a session ID can never be reused (409).
+-- The latest row is the active session; superseded sessions keep a frozen
+-- coverage snapshot for GET /test/report.
+CREATE TABLE IF NOT EXISTS test_sessions (
+    seq             BIGSERIAL PRIMARY KEY,
+    session_id      TEXT        NOT NULL UNIQUE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    frozen_coverage JSONB
+);

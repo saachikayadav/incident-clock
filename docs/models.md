@@ -12,7 +12,8 @@ Source of truth for each model:
 | M2 Information model | ER / schema | `app/schema.sql` (tables, keys, checks, triggers) |
 | M3 Deadline calculation | Activity | Phase 2 Model 3 — **not yet implemented** (Phase 4) |
 | M4 Request check order | Activity | `_observe` middleware + handlers in `app/main.py` |
-| A1 Architecture & data flow | Component | `app/` modules; `render.yaml`; Phase 2 Q7.1 |
+| A1 Architecture & data flow | Component | `app/`, `tester/` modules; `render.yaml`; Phase 2 Q7.1 |
+| T1 Cross-team test session | Sequence | `tester/main.py`, `/test/*` routes in `app/main.py`; course testing interface |
 
 ---
 
@@ -20,31 +21,47 @@ Source of truth for each model:
 
 ```mermaid
 flowchart LR
-  subgraph Clients
-    T["Pod test runner<br/>(pytest, BASE_URL + API_KEY)"]
-    U["Reviewer / grader<br/>(HTTP client)"]
+  G["Grader / podmate<br/>(HTTP client)"]
+  PT["Podmate tester"]
+
+  subgraph TS["Render web service: incident-clock-tester (Docker)"]
+    TA["tester/main.py<br/>/test/setup · /test/run · /test/report<br/>sessions + reports in memory"]
+    TP["pytest subprocess<br/>plan = tests/ (non-provisional)<br/>+ tester/plugin.py outcomes"]
+    TR["tester/reporting.py<br/>results + code/component/system coverage"]
   end
 
-  subgraph Render["Render web service (Docker, region ohio)"]
+  subgraph SYS["Render web service: incident-clock (Docker)"]
     MW["Middleware _observe<br/>request id · X-API-Key check (401)<br/>timing · JSON log line"]
     H["Route handlers (app/main.py)<br/>404 existence → 400 validation"]
-    V["validation.py<br/>RFC 3339 + offset, field rules,<br/>INVALID_&lt;FIELD&gt; errors"]
-    S["Store (app/db.py)<br/>psycopg pool, INSERT-only,<br/>one transaction per write"]
+    TI["/test/setup · /test/report<br/>(app/main.py)"]
+    CV["coverage_session.py<br/>coverage.py, sys.monitoring core"]
+    V["validation.py<br/>RFC 3339 + offset, field rules"]
+    S["Store (app/db.py)<br/>psycopg pool, INSERT-only"]
     D["deadline module<br/>(planned, Phase 4)"]
   end
 
-  DB[("Render Postgres 16<br/>incidents · evidence · events<br/>append-only triggers")]
-  LOG[["Render log stream<br/>(stdout JSON)"]]
-  GH["GitHub repo + Actions CI<br/>autoDeployTrigger: checksPass"]
+  DB[("Render Postgres 16<br/>incidents · evidence · events (append-only)<br/>test_sessions")]
+  LOG[["Render log streams<br/>(stdout JSON)"]]
+  GH["GitHub + Actions CI<br/>autoDeployTrigger: checksPass"]
 
-  T -- "HTTPS JSON (common interface)" --> MW
-  U -- "HTTPS JSON" --> MW
+  G -- "target_url" --> TA
+  TA --> TP
+  TP --> TR
+  TA -- "POST /test/setup, GET /test/report<br/>(X-API-Key, registered targets only)" --> MW
+  TP -- "pod contract v1.0 requests" --> MW
+  PT -- "same interface" --> MW
+  G -- "direct testing" --> MW
   MW --> H
+  MW --> TI
+  TI --> CV
+  TI --> S
   H --> V
   H --> S
   S -- "SQL" --> DB
   MW -- "1 line / request" --> LOG
-  GH -- "deploy commit SHA<br/>(RENDER_GIT_COMMIT → X-Service-Version)" --> Render
+  TA -- "run events" --> LOG
+  GH -- "commit SHA → X-Service-Version / tester_version" --> SYS
+  GH --> TS
   H -.-> D
 
   classDef planned stroke-dasharray: 5 5,color:#888;
@@ -52,7 +69,43 @@ flowchart LR
 ```
 
 **Responsibilities retained outside the system:** materiality judgment (disclosure committee),
-filing on EDGAR, and API-key distribution to the pod (shared out of band).
+filing on EDGAR, and API-key distribution to the pod (shared out of band; the tester holds keys
+only for targets registered in its `TARGETS` setting).
+
+---
+
+## T1 — Cross-team test session (sequence, as implemented)
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor G as Grader
+  participant T as Tester (ours)
+  participant P as pytest subprocess
+  participant S as Target system
+  G->>T: POST /test/setup {target_url}
+  alt target not in TARGETS
+    T-->>G: 400 {message, source: tester}
+  else registered
+    T->>S: POST /test/setup {session_id, setup: {}} + X-API-Key
+    S->>S: clear project data, register session, restart coverage
+    S-->>T: 201 {session_id}
+    T-->>G: 201 {session_id}
+  end
+  G->>T: POST /test/run {session_id}
+  T->>P: run tests/ (-m "not provisional"), BASE_URL = target
+  loop each planned test, in order
+    P->>S: POST /reset, then contract requests
+    S-->>P: responses
+    P->>P: pass / fail / error(source) / skip → results.jsonl
+  end
+  T->>S: GET /test/report?session_id
+  S-->>T: coverage.code
+  T->>T: component + system coverage, store report
+  T-->>G: 200 report  (500 + stored partial report on abort)
+  G->>T: GET /test/report?session_id (after a lost response)
+  T-->>G: stored report (409 until the suite ends)
+```
 
 ---
 
@@ -85,6 +138,12 @@ stateDiagram-v2
 ```mermaid
 erDiagram
   INCIDENTS ||--o{ EVIDENCE : "has (FK incident_seq)"
+  TEST_SESSIONS {
+    bigint seq PK "latest row = active session"
+    text session_id UK "never reusable: 409"
+    timestamptz created_at
+    jsonb frozen_coverage "set when superseded"
+  }
   INCIDENTS ||--o{ EVENTS : "history (FK incident_seq)"
 
   INCIDENTS {
@@ -121,6 +180,8 @@ Invariants enforced by the database, not only the application:
   ID numbering (REQ-14). It is the only removal path.
 - Evidence cannot reference a missing incident (FK).
 
+`test_sessions` is not cleared by `POST /reset` or `/test/setup`, so a session ID can never be reused.
+
 Planned (not in code yet): `decisions` (with `supersedes` link for corrections, REQ-06) and `filings`.
 
 ---
@@ -147,7 +208,7 @@ flowchart TD
   M -- "method not allowed<br/>(PUT/PATCH/DELETE)" --> E405[405 METHOD_NOT_ALLOWED]
   M -- yes --> X{incidentId in path?}
   X -- "no: POST /incidents" --> B
-  X -- "no: /health, /reset" --> OK
+  X -- "no: /health, /reset, /test/*" --> OK
   X -- yes --> F{Incident exists?}
   F -- no --> E404b[404 NOT_FOUND]
   F -- yes --> I{Phase 4/5 operation?}

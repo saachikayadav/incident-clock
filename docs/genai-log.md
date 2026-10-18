@@ -1,5 +1,8 @@
 # GenAI change log — Phase 3
 
+Phase 3 also gained the course cross-team testing interface (2026-10-18): tester service, system `/test/*`
+endpoints, per-session coverage. Corrections C9–C11 come from that work.
+
 Tool: Claude (Anthropic) in the claude.ai app with a cloud workspace (shell, files, web search),
 working as a coding agent on the instruction "build Phase 3 from scratch against the submitted
 contract". No AI runs in the deployed system; no AI makes or suggests materiality decisions.
@@ -44,6 +47,9 @@ Only synthetic data was used; no secrets were given to the tool (the local API k
 | C6 | Rendering diagrams failed: mermaid-cli expected a Chrome build that was not installed. | Tool error | Pointed it at the preinstalled headless Chromium; every PNG inspected visually |
 | C7 | **False-positive verification.** A "clean" re-run deleted the PID file while the old server was still up; the new server failed to bind :8000, but `serve_local.sh start` passed its health check against the *old* process, so tests and the persistence "restart" hit a stale server and reported green. | Structured request log lines were missing from the new log file — the evidence did not match the claim | `serve_local.sh` now refuses to start if the port already answers and fails if its own process exits; re-run shows PID change across restart (2526 → 2579) |
 | C8 | Initial dependency pins (`fastapi 0.115.14` → `starlette 0.46.2`) had 14 published advisories. Pins came from the agent's default, not a check. | `pip-audit` (added to CI) | Upgraded to fastapi 0.143.3, starlette 1.8.0 (pinned explicitly), uvicorn 0.54.0, psycopg 3.3.6; full suite re-run green; `pip-audit`: no known vulnerabilities |
+| C9 | Per-session code coverage first used coverage.py's default C tracer, which only traces threads started *after* coverage begins. FastAPI runs DB calls on worker threads that already exist, so those lines would have been silently uncounted. | A 10-line probe with a pre-existing thread pool: C tracer recorded the loop-thread lines only; the `sysmon` core recorded both | `COVERAGE_CORE=sysmon` set in `app/coverage_session.py`; documented in the basis string |
+| C10 | **Lost work.** To undo a deliberate mutation the agent ran `git checkout app/errors.py`, which restored the *last commit* and erased that session's uncommitted `source` field changes. | `grep -c source app/errors.py` returned 0 after the restore | Re-applied the exact edit; verified with `git diff --stat`; from then on mutations were restored from a backup copy, never from git |
+| C11 | Process control in the sandbox killed the agent's own shell three times (`pkill -f` / `pgrep -f` patterns that also appeared in the shell's command line), once leaving a wrong-PID file because `setsid` forked, and a bare `wait` blocked on a long-running server. Each made a scenario appear to run when it had not (the first "abort" test ran against a stale tester and passed). | Exit code 144; a report whose duration (3 s) was impossible under a 1.5 s limit | Moved control to script files and a by-port killer; re-ran the abort scenario and confirmed 500 + stored partial report |
 
 ## Agentic principles — honest assessment
 

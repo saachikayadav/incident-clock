@@ -1,5 +1,5 @@
-# Render Blueprint: one Docker web service + one Postgres database.
-# Deploys only after GitHub checks (CI) pass on the commit.
+# Render Blueprint: system (Docker web service + Postgres) and tester (Docker web service).
+# Both deploy only after GitHub checks (CI) pass on the commit.
 services:
   - type: web
     name: incident-clock
@@ -11,11 +11,23 @@ services:
     autoDeployTrigger: checksPass
     envVars:
       - key: API_KEY
-        sync: false            # entered once in the Render dashboard; never committed
+        sync: false            # the pod's shared test key; entered once in the dashboard
       - key: DATABASE_URL
         fromDatabase:
           name: incident-clock-db
           property: connectionString
+
+  - type: web
+    name: incident-clock-tester
+    runtime: docker
+    plan: free
+    region: ohio
+    dockerfilePath: ./Dockerfile.tester
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: TARGETS
+        sync: false            # JSON {"https://<system base URL>": "<api key>", ...}; only these targets are testable
 
 databases:
   - name: incident-clock-db

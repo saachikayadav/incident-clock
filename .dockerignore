@@ -4,8 +4,7 @@
 venv
 reports
 .run
-tests
-fixtures
+tester_tests
 docs
 scripts
 __pycache__
