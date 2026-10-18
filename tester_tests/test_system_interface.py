@@ -101,3 +101,19 @@ def test_test_endpoints_require_key() -> None:
     with httpx.Client(base_url=BASE, timeout=60) as anon:
         _error_shape(anon.post("/test/setup", json={"session_id": "x"}), 401)
         _error_shape(anon.get("/test/report", params={"session_id": "x"}), 401)
+
+
+def test_docs_page_and_specs_are_public_but_api_stays_protected() -> None:
+    import yaml
+
+    with httpx.Client(base_url=BASE, timeout=60) as anon:
+        page = anon.get("/docs")
+        assert page.status_code == 200 and "text/html" in page.headers["content-type"]
+        assert "swagger-ui-dist@" in page.text and 'integrity="sha384-' in page.text
+        for path in ("/openapi.yaml", "/openapi/system-test-interface.yaml"):
+            spec = anon.get(path)
+            assert spec.status_code == 200, path
+            assert yaml.safe_load(spec.text)["openapi"].startswith("3.1")
+        # Making the docs public must not open the API itself.
+        assert anon.get("/incidents/INC-001").status_code == 401
+        assert anon.get("/test/report", params={"session_id": "x"}).status_code == 401

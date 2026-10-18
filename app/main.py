@@ -29,18 +29,21 @@ from typing import Any
 from fastapi import FastAPI, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import coverage_session, logs
 from .config import load_settings
 from .db import Store
+from .docs_page import DOCS_HTML
 from .errors import ApiError, error_response, not_found, not_implemented
 from .validation import parse_json_object, to_utc, validate_evidence, validate_incident
 
-PUBLIC_PATHS = {"/health", "/openapi.yaml"}
+PUBLIC_PATHS = {"/health", "/openapi.yaml", "/openapi/system-test-interface.yaml", "/docs"}
 MAX_SESSION_ID_LEN = 200
-CONTRACT_PATH = Path(__file__).resolve().parent.parent / "openapi" / "contract.yaml"
+OPENAPI_DIR = Path(__file__).resolve().parent.parent / "openapi"
+CONTRACT_PATH = OPENAPI_DIR / "contract.yaml"
+TEST_INTERFACE_PATH = OPENAPI_DIR / "system-test-interface.yaml"
 
 
 def create_app() -> FastAPI:
@@ -157,6 +160,15 @@ def create_app() -> FastAPI:
     async def contract() -> PlainTextResponse:
         text = CONTRACT_PATH.read_text()
         return PlainTextResponse(text, media_type="application/yaml")
+
+    @app.get("/openapi/system-test-interface.yaml")
+    async def test_interface_spec() -> PlainTextResponse:
+        return PlainTextResponse(TEST_INTERFACE_PATH.read_text(), media_type="application/yaml")
+
+    @app.get("/docs")
+    async def docs() -> HTMLResponse:
+        """Interactive API docs (Swagger UI); requests from the page still need the API key."""
+        return HTMLResponse(DOCS_HTML)
 
     @app.post("/reset")
     async def reset() -> JSONResponse:

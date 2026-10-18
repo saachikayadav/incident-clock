@@ -16,7 +16,8 @@ info:
     Access: every endpoint here requires the pod's shared test key in X-API-Key
     (obtained from the team, never placed in URLs or the registry spreadsheet).
 servers:
-  - url: https://REPLACE-WITH-SYSTEM-BASE-URL
+  - url: /
+    description: The deployed system that serves this document (https://incident-clock.onrender.com)
 security:
   - ApiKey: []
 paths:

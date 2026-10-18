@@ -43,6 +43,8 @@ Two deployed services (see `render.yaml`):
 | `POST /reset` | implemented |
 | `POST .../decisions`, `POST .../corrections`, `GET .../deadline-status`, `POST .../filing`, `GET .../timeline` | 401/404 enforced, otherwise `501 NOT_IMPLEMENTED` |
 | `GET /openapi.yaml` | serves the contract file verbatim (not part of the contract) |
+| `GET /docs` | interactive API docs (Swagger UI): click **Authorize**, paste the key, then **Try it out**. Public page; every API call from it still needs the key |
+| `GET /openapi/system-test-interface.yaml` | the `/test/*` API description, used by `/docs` |
 | `POST /test/setup`, `GET /test/report` | course testing interface (key required): clears project data, starts per-session line coverage, reports it |
 
 Regenerate this table from live probes: `python scripts/operation_status.py`.
