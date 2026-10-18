@@ -1,7 +1,8 @@
 # Project Phase 3 — draft answers
 
-Evidence base: local runs on 2026-10-17 05:09 UTC and, for the course testing interface, 2026-10-18 20:10 UTC against PostgreSQL 16 + the service at the
-working-tree state (not yet committed). Items marked **[NEEDS VERIFICATION]** depend on the
+Evidence base: local runs on 2026-10-17 05:09 UTC and 2026-10-18 20:10 UTC against PostgreSQL 16,
+and the deployed services at commit `63cf444` (grader sequence run 2026-10-18 22:44 UTC; CI run
+https://github.com/saachikayadav/incident-clock/actions/runs/39172088813). Items marked **[NEEDS VERIFICATION]** depend on the
 deployment, CI, or pod actions that have not happened yet; **[REQUIRES TEAM INPUT]** needs facts
 only the team has. Replace every marker before submitting.
 
@@ -22,16 +23,16 @@ If partial: the AC-02 "incident count unchanged" check cannot run through contra
 REQ-03 - Add evidence │ Status: complete │ Demonstrated by: AC-04, AC-05
 REQ-07 - No edits or deletes │ Status: partial │ Demonstrated by: AC-08 (Phase 3 portion: `test_req07_*`)
 If partial: covers incidents and evidence; decisions and filings do not exist until Phases 4–5. AC-08's decision-history steps are blocked by ISSUE-05/ISSUE-10.
-REQ-13 - Authentication │ Status: partial │ Demonstrated by: AC-14
-If partial: API-key enforcement is complete and tested. HTTPS depends on deployment **[NEEDS VERIFICATION: run `test_ac14_served_over_https` against the Render URL]**.
+REQ-13 - Authentication │ Status: complete │ Demonstrated by: AC-14
+If partial: API-key enforcement is complete and tested. HTTPS verified on the deployed service: `test_ac14_served_over_https` passed in the deployed run (2026-10-18 22:44 UTC). Remaining manual part: code inspection.
 REQ-14 - Errors, reset, formats │ Status: partial │ Demonstrated by: AC-01–AC-05, AC-16
 If partial: complete for the Phase 3 operations; Phase 4–5 operations are not implemented yet.
 REQ-15 - Persistence and performance │ Status: partial │ Demonstrated by: AC-16
-If partial: verified locally (100/100 incidents survive restart; 100% of 200 requests under 1 s, p95 4 ms). The run against the deployed service is pending **[NEEDS VERIFICATION]**.
+If partial: verified locally (100/100 incidents survive restart; 100% of 200 requests under 1 s, p95 4 ms). Deployed: the AC-16 latency test passed against `https://incident-clock.onrender.com` (2026-10-18 22:44 UTC); a restart-persistence check on the deployed database is still to be run **[NEEDS VERIFICATION: `persistence_check.py --phase seed`, Manual Deploy → Restart, `--phase verify`]**.
 
 ### Q1.2 Comparison with the Phase 2 plan
 
-Every capability in the Phase 2 §6.1 milestone was implemented: incident and evidence data models, persistent PostgreSQL storage, API-key authentication, `/health`, `POST /incidents`, `GET /incidents/{id}`, evidence, `/reset`, synthetic fixtures (`fixtures/phase3.json`), and automated tests for AC-01–AC-04. We also delivered AC-05, AC-14, the REQ-07 incident portion, and AC-16 persistence/latency checks, because REQ-03, REQ-13 and REQ-15 otherwise had no acceptance evidence. **[NEEDS VERIFICATION: deployed web service — fill in once the Render deploy is live; if it is not live at submission, state that deployment is the undelivered item.]** The pod's *shared* fixture repository was not created; our fixtures live in this repository **[REQUIRES TEAM INPUT: confirm with the podmate team]**. The course cross-team testing interface (tester service and system `/test/*` endpoints) is additional Phase 3 work required by the course, not by our §6.1 plan; it is delivered. No instructor-required scope changes occurred, and no shared scope was reduced.
+Every capability in the Phase 2 §6.1 milestone was implemented: incident and evidence data models, persistent PostgreSQL storage, API-key authentication, `/health`, `POST /incidents`, `GET /incidents/{id}`, evidence, `/reset`, synthetic fixtures (`fixtures/phase3.json`), and automated tests for AC-01–AC-04. We also delivered AC-05, AC-14, the REQ-07 incident portion, and AC-16 persistence/latency checks, because REQ-03, REQ-13 and REQ-15 otherwise had no acceptance evidence. The deployable web service is live on Render (`https://incident-clock.onrender.com`, commit `63cf444`) and passed the full suite there through our deployed tester (81 pass, 1 skip). The pod's *shared* fixture repository was not created; our fixtures live in this repository **[REQUIRES TEAM INPUT: confirm with the podmate team]**. The course cross-team testing interface (tester service and system `/test/*` endpoints) is additional Phase 3 work required by the course, not by our §6.1 plan; it is delivered. No instructor-required scope changes occurred, and no shared scope was reduced.
 
 ---
 
@@ -39,11 +40,11 @@ Every capability in the Phase 2 §6.1 milestone was implemented: incident and ev
 
 ### Q2.1 Deployed web service
 
-Two services run on Render, both defined in `render.yaml` [3] and both Docker web services (Python 3.12 + uvicorn) in region Ohio on the free plan. The system uses a Render Postgres 16 database; the tester is stateless apart from in-memory reports **[NEEDS VERIFICATION: system base URL, tester base URL]**. Each system response carries an `X-Service-Version` header, and each tester report a `tester_version` field, holding the first 12 characters of `RENDER_GIT_COMMIT`, the commit SHA Render deploys [4]. That maps the running version to a commit **[NEEDS VERIFICATION: base URL `https://…onrender.com` and deployed SHA]**. A new version is released by merging to `main`. GitHub Actions runs static checks and the contract suite, and Render's `autoDeployTrigger: checksPass` deploys the commit only after those checks pass [3]. The service is not always on: free web services spin down after 15 idle minutes and take about a minute to wake on the next request [5]. The free database expires 30 days after creation (1 GB, no backups) [5] **[NEEDS VERIFICATION: database creation date → expiry date]**, and workspaces get 750 free instance hours per month [5]. Podmates should send one `GET /health` and allow up to 60 s before timing tests. They should also coordinate before running a suite: `/test/setup` and every test's `POST /reset` wipe all data, and only one session is active per system. The tester keeps sessions and reports in memory, so a spin-down after 15 idle minutes clears them; fetch reports promptly. The tester only tests targets registered in its `TARGETS` setting.
+Two services run on Render, both defined in `render.yaml` [3] and both Docker web services (Python 3.12 + uvicorn) in region Ohio on the free plan. The system uses a Render Postgres 16 database; the tester is stateless apart from in-memory reports. System: `https://incident-clock.onrender.com`; tester: `https://incident-clock-tester.onrender.com`; both Live on commit `63cf444`. Each system response carries an `X-Service-Version` header, and each tester report a `tester_version` field, holding the first 12 characters of `RENDER_GIT_COMMIT`, the commit SHA Render deploys [4]. That maps the running version to a commit: on 2026-10-18 the system returned `X-Service-Version: 63cf44491ece` and the tester reported `tester_version: 63cf44491ece`, matching `main`. A new version is released by merging to `main`. GitHub Actions runs static checks and the contract suite, and Render's `autoDeployTrigger: checksPass` deploys the commit only after those checks pass [3]. The service is not always on: free web services spin down after 15 idle minutes and take about a minute to wake on the next request [5]. The free database expires 30 days after creation (1 GB, no backups) [5] (database created 2026-10-18, so it expires 2026-11-17), and workspaces get 750 free instance hours per month [5]. Podmates should send one `GET /health` and allow up to 60 s before timing tests. They should also coordinate before running a suite: `/test/setup` and every test's `POST /reset` wipe all data, and only one session is active per system. The tester keeps sessions and reports in memory, so a spin-down after 15 idle minutes clears them; fetch reports promptly. The tester only tests targets registered in its `TARGETS` setting.
 
 ### Q2.2 Registry and team documentation
 
-Registry entry: **[REQUIRES TEAM INPUT: class registry location]** │ Updated on: **[date]**. The entry should contain: System base URL `https://…` (no `/test` suffix); Tester base URL `https://…`; Intra-pod specification URL (the pod's shared spec, with `docs/spec-issues.md` ISSUE-11…16 for preparation, resets and coverage definitions); Access/run notes: "System endpoints need the pod test key in `X-API-Key`; ask the team, it is never in the sheet. Tester endpoints are open; podmate systems must be registered in our tester first. Max times (free plan, including a ~60 s cold start): tester setup 150 s, tester run 600 s, system setup 90 s. One run per target at a time."
+Registry entry: **[REQUIRES TEAM INPUT: class registry location]** │ Updated on: **[date]**. The entry should contain: System base URL `https://incident-clock.onrender.com`; Tester base URL `https://incident-clock-tester.onrender.com`; Intra-pod specification URL (the pod's shared spec, with `docs/spec-issues.md` ISSUE-11…16 for preparation, resets and coverage definitions); Access/run notes: "System endpoints need the pod test key in `X-API-Key`; ask the team, it is never in the sheet. Tester endpoints are open; podmate systems must be registered in our tester first. Max times (free plan, including a ~60 s cold start): tester setup 150 s, tester run 600 s, system setup 90 s. One run per target at a time."
 Team documentation: `README.md`, `docs/models.md` (+ `docs/diagrams/*.png`), `docs/spec-issues.md`, `openapi/contract.yaml` in `github.com/saachikayadav/incident-clock` │ Updated on: **[date of push]**
 
 ### Q2.3 Operational experience supported by observability evidence
@@ -112,7 +113,7 @@ Intentional deviations and resolution plan: (1) Operations not yet built return 
 
 ### Q4.1 Test runner and execution instructions
 
-Base URL override: graders and podmates change the target only through the course interface. `POST <our tester>/test/setup {"target_url": "<any registered pod system base URL>"}` then `POST /test/run {"session_id"}`; no code changes. Outside the tester, the same suite runs with `BASE_URL=<system> API_KEY=<key> python -m pytest`, and `scripts/cross_team_run.py --tester … --target …` performs the grader sequence and saves the report. │ Response received: **[NEEDS VERIFICATION: deployed `POST /test/setup` → expected `201 {"session_id": "<uuid>"}`; `POST /test/run` → `200` report]**. Local, 2026-10-18: setup `201 {"session_id":"15bd0d6e-…"}`; run `200` with 82 results (80 pass, 2 skip), coverage code 332/406, component 5/10, system 8/16. │ Conforms to spec: yes. The report validates against `openapi/tester.yaml`, every planned test appears once with a unique ID and non-empty message, and every `error` carries a `source`. System `/test/*` and the pod contract validate against their OpenAPI files.
+Base URL override: graders and podmates change the target only through the course interface. `POST <our tester>/test/setup {"target_url": "<any registered pod system base URL>"}` then `POST /test/run {"session_id"}`; no code changes. Outside the tester, the same suite runs with `BASE_URL=<system> API_KEY=<key> python -m pytest`, and `scripts/cross_team_run.py --tester … --target …` performs the grader sequence and saves the report. │ Response received: deployed, 2026-10-18 22:44 UTC: `POST https://incident-clock-tester.onrender.com/test/setup {"target_url": "https://incident-clock.onrender.com"}` → `201 {"session_id": "a1b154da-163b-40a9-8989-2ca1348efea9"}`; `POST /test/run` → `200` report in 30 s (82 results: 81 pass, 1 skip; coverage code 337/406, component 5/10, system 8/16); `GET /test/report` → `200`, byte-identical to the run response. Local, 2026-10-18: setup `201 {"session_id":"15bd0d6e-…"}`; run `200` with 82 results (80 pass, 2 skip), coverage code 332/406, component 5/10, system 8/16. │ Conforms to spec: yes. The report validates against `openapi/tester.yaml`, every planned test appears once with a unique ID and non-empty message, and every `error` carries a `source`. System `/test/*` and the pod contract validate against their OpenAPI files.
 Known deviations from the OpenAPI spec: Phase 4–5 project operations return 501 (Q3.2). Tester reports carry four additional fields (`summary`, `started_at`, `duration_seconds`, `tester_version`). System `/test/*` error bodies carry an additional `error` code alongside `message` and `source`. No deviations in required fields or status codes.
 
 ### Q4.2 Tests for new functionality
@@ -157,25 +158,26 @@ Oracles: Every expected status, field and value comes from the Phase 2 acceptanc
 
 ### Q4.3 Regression and static checks
 
-CI run: **[NEEDS VERIFICATION: link to the first green run of `.github/workflows/ci.yml` on `main`]**
+CI run: https://github.com/saachikayadav/incident-clock/actions/runs/39172088813 (commit `63cf444`, success; first run on `366aec7`: https://github.com/saachikayadav/incident-clock/actions/runs/39009187556)
 
 Every push and pull request re-runs the complete suite (all Phase 3 tests, and in later phases all earlier ones) against a fresh PostgreSQL 16 service container. Tests are added per phase and never removed, so Phase 3 behavior stays checked as Phases 4–5 change the same handlers. The persistence check, the operation-status probe, the system `/test/*` checks and a full tester → system run also execute on every build, and the JUnit and status reports are uploaded as artifacts. Render deploys only commits whose checks passed (`checksPass`), so a regression cannot reach the deployed service through the normal release path.
 
 ### Q4.4 Static checks
 
-CI run: **[NEEDS VERIFICATION: same link]**
+CI run: https://github.com/saachikayadav/incident-clock/actions/runs/39172088813
 
 CI runs these checks on every push and PR: ruff lint (including security rules `S`), the ruff format check, mypy `--strict` over the system, tester, scripts and tests, `openapi-spec-validator` on all three API documents, `pip-audit` on both the system and tester dependencies, and the tester self-tests. They all run in a `static` job that the contract-test job depends on, so a failing static check stops testing, and through `checksPass` it also stops deployment. Blocking merges additionally requires enabling branch protection on `main` **[REQUIRES TEAM INPUT: enable "require status checks"]**. `pip-audit` has already paid off: it found 14 published advisories against the initial `starlette 0.46.2` pin, which we resolved by upgrading before the first deploy.
 
 ### Q4.5 Test results against the deployed system
 
-Run date/time: **[NEEDS VERIFICATION: deployed run]** │ Version tested: **[tag/SHA]**
-Tests run: **[#]** │ Passed: **[#]** │ Failed: **[#]** │ Skipped: **[#]**
+Run date/time: 2026-10-18 22:44:22 UTC │ Version tested: `63cf444` (confirmed by `X-Service-Version` and `tester_version`)
+Tests run: 82 │ Passed: 81 │ Failed: 0 │ Skipped: 1
+How: our deployed tester against our deployed system, through the course interface (setup → run → report), i.e. exactly the grader sequence. Report validated: 82 unique test IDs, non-empty messages, valid outcomes, coverage counts within bounds; stored report identical to the run response.
 
 Reference result, local service on the same code, 2026-10-17 05:09 UTC: 86 collected, 84 passed, 0 failed, 2 skipped. Contract-only (`-m "not provisional"`): 80 passed, 2 skipped. Expected deployed result: 85 passed, 1 skipped, because the HTTPS test runs once BASE_URL is https. Through the tester (non-provisional plan, 82 tests), local result 2026-10-18: 80 pass, 0 fail, 0 error, 2 skip; expected deployed: 81 pass, 1 skip.
 
 Skipped: `test_ac02_rejected_request_creates_nothing` │ Classification: specification │ Cause: AC-02's count check needs a list operation absent from contract v1.0 (ISSUE-01) │ Plan: pod decides between adding `GET /incidents` and rewording AC-02 before Phase 4.
-Skipped (local only): `test_ac14_served_over_https` │ Classification: test environment │ Cause: local target is http │ Plan: runs automatically against the deployed URL.
+`test_ac14_served_over_https` (skipped in local runs because the target is http) ran and passed against the deployed HTTPS URL.
 
 ---
 
@@ -256,8 +258,8 @@ LIM-10 │ One active session per system; overlapping runs against the same targ
 Workaround for podmates: one run per target at a time; announce runs in the pod channel │ Target phase: pod decision (ISSUE-12)
 LIM-11 │ Code coverage is line coverage only, and is lost if the system restarts mid-session (reported as null with that reason) │ Affects: coverage reporting │ Severity: low
 Workaround for podmates: none │ Target phase: 6
-LIM-08 │ The Docker image has not been built yet: Docker Hub was unreachable from the build sandbox. The identical runtime (same files, pins, CMD and port) passes the full suite. │ Affects: deployment │ Severity: medium until first Render build
-Workaround for podmates: none │ Target phase: 3 (first deploy) **[NEEDS VERIFICATION]**
+LIM-08 │ ~~Docker images not yet built~~ **Resolved 2026-10-18**: both images (`Dockerfile`, `Dockerfile.tester`) built and deployed on Render at `63cf444` │ Affects: deployment │ Severity: —
+Workaround for podmates: none needed │ Target phase: done (Phase 3)
 
 ### Q7.3 Adjustments to next phase milestone
 
