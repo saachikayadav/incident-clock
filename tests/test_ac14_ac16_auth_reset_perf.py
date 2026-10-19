@@ -20,14 +20,20 @@ PROTECTED = [
 ]
 
 
+def _body(method: str) -> dict[str, object] | None:
+    """GET requests carry no body: some hosting front ends (e.g. Google Cloud Run) reject a GET
+    with a body with an HTML 400 before the request reaches the service under test."""
+    return None if method == "GET" else {}
+
+
 @pytest.mark.parametrize("method,path", PROTECTED)
 def test_ac14_missing_key_401(anon: httpx.Client, method: str, path: str) -> None:
-    assert_error(anon.request(method, path, json={}), 401)
+    assert_error(anon.request(method, path, json=_body(method)), 401)
 
 
 @pytest.mark.parametrize("method,path", PROTECTED)
 def test_ac14_wrong_key_401(anon: httpx.Client, method: str, path: str) -> None:
-    assert_error(anon.request(method, path, json={}, headers={"X-API-Key": "wrong-key"}), 401)
+    assert_error(anon.request(method, path, json=_body(method), headers={"X-API-Key": "wrong-key"}), 401)
 
 
 def test_ac14_valid_key_succeeds(api: httpx.Client) -> None:

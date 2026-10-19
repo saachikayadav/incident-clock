@@ -34,8 +34,10 @@ def test_ac03_post_evidence_unknown_incident_404(api: httpx.Client) -> None:
     ],
 )
 def test_ac03_other_incident_operations_unknown_id_404(api: httpx.Client, method: str, suffix: str) -> None:
-    """Every incident-scoped operation in contract v1.0 lists 404 for a missing incident."""
-    assert_error(api.request(method, f"/incidents/{UNKNOWN}{suffix}", json={}), 404)
+    """Every incident-scoped operation in contract v1.0 lists 404 for a missing incident.
+
+    GETs carry no body (Cloud Run rejects GET with a body before the service sees it)."""
+    assert_error(api.request(method, f"/incidents/{UNKNOWN}{suffix}", json=None if method == "GET" else {}), 404)
 
 
 def test_ac03_reset_ids_do_not_resolve(api: httpx.Client) -> None:
