@@ -14,8 +14,8 @@ Two deployed services (see `render.yaml`):
 
 | Service | Base URL | Description |
 |---|---|---|
-| System | `https://<system>.onrender.com` | Pod contract v1.0 (`openapi/contract.yaml`) + `/test/setup`, `/test/report` (`openapi/system-test-interface.yaml`) |
-| Tester | `https://<tester>.onrender.com` | `/test/setup`, `/test/run`, `/test/report` (`openapi/tester.yaml`) |
+| System | `https://incident-clock.onrender.com` (interactive docs at `/docs`) | Pod contract v1.0 (`openapi/contract.yaml`) + `/test/setup`, `/test/report` (`openapi/system-test-interface.yaml`) |
+| Tester | `https://incident-clock-tester.onrender.com` | `/test/setup`, `/test/run`, `/test/report` (`openapi/tester.yaml`) |
 
 ## Status by requirement
 
@@ -25,9 +25,9 @@ Two deployed services (see `render.yaml`):
 | REQ-02 | Reject invalid incident | complete¹ | AC-02 `test_ac02_*` |
 | REQ-03 | Add evidence | complete | AC-04, AC-05 |
 | REQ-07 | No edits/deletes (405) | partial — incidents only; other resources arrive P4–5 | `test_req07_*` |
-| REQ-13 | API-key auth, HTTPS | complete in code; HTTPS pending deploy | AC-14 `test_ac14_*` |
+| REQ-13 | API-key auth, HTTPS | complete (deployed over HTTPS on Render) | AC-14 `test_ac14_*` |
 | REQ-14 | Error format, reset, RFC 3339/UTC | partial — for delivered ops | AC-01..05, AC-16 |
-| REQ-15 | Persistence, latency | complete locally; deployed run pending | AC-16, `scripts/persistence_check.py` |
+| REQ-15 | Persistence, latency | complete locally; deployed latency passed, deployed restart check pending | AC-16, `scripts/persistence_check.py` |
 | REQ-04–06, 08–12 | Decisions, deadlines, filing, timeline | not started (P4–5); routes return 501 | — |
 
 ¹ "Incident count unchanged" in AC-02 is not testable through contract v1.0 (docs/spec-issues.md ISSUE-01).
@@ -135,6 +135,19 @@ One JSON line per request on stdout (Render log stream): `request_id`, `method`,
 `status`, `latency_ms`, `error_code`, `version`. Plus `startup`, `reset`, and `unhandled_exception`
 events. Bodies and `X-API-Key` are never logged. Every response carries `X-Request-ID`.
 
+## Verified results (2026-10-18 EDT, tester `b87ac9e`)
+
+| Run | Result | Coverage (code / component / system) |
+|---|---|---|
+| Our tester → our system | 81 pass, 0 fail, 1 skip | 344/420, 5/10, 8/16 |
+| Our tester → podmate system | 81 pass, 0 fail, 1 skip | 140/522, 5/10, 8/16 |
+| Podmate tester → our system | 48/48 pass (their report) | 325/406, n/a, 8/16 |
+
 ## Known limitations
 
-See docs/spec-issues.md and the Phase 3 report draft (`docs/phase3-report.md`).
+- Decisions, corrections, deadline status, filing and timeline return `501` until Phases 4–5.
+- Free plan: 15-minute idle spin-down (~60 s cold start); the free database expires 2026-11-17.
+- One test session per system; concurrent runs reset each other's data (docs/spec-issues.md ISSUE-12).
+- AC-02's "count unchanged" check cannot run: contract v1.0 has no list operation (ISSUE-01).
+
+Full list: docs/spec-issues.md and `docs/phase3-report.md` (Q7.2).
