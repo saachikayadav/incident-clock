@@ -31,6 +31,8 @@ jobs:
         run: pip install pip-audit && pip-audit -r requirements.txt && pip-audit -r requirements-tester.txt
       - name: tester self-tests (report logic, error sources, session rules)
         run: python -m pytest tester_tests -o addopts=""
+      - name: deadline module unit tests (REQ-09/10/11; statutory holiday cross-check, 2023-2027)
+        run: python -m pytest unit_tests -o addopts=""
 
   contract-tests:
     name: contract tests (local service + Postgres)
@@ -55,7 +57,7 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - name: start service
         run: scripts/serve_local.sh start
-      - name: contract test suite (AC-01..05, AC-14, AC-16, REQ-07)
+      - name: contract test suite (AC-01..07, AC-09..11, AC-14..16, REQ-07)
         run: python -m pytest
       - name: persistence across restart (AC-16)
         run: python scripts/persistence_check.py --restart-cmd "scripts/serve_local.sh restart"

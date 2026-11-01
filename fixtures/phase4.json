@@ -1,0 +1,35 @@
+{
+  "_comment": "Synthetic Phase 4 fixtures (Phase 2 Q4.1/Q4.2). Determination dates and expected deadlines are copied from the pod's AC-09, AC-10 and AC-11 text; all use the 2025 calendar so no input is a future time. Expected values are hand-derived from the AC text, never from an implementation.",
+  "materialDecision": {
+    "decision": "MATERIAL",
+    "determinedAt": "2025-09-29T10:00:00-04:00",
+    "decidedBy": "Disclosure Committee",
+    "rationale": "The operational and financial impact was determined to be material."
+  },
+  "notMaterialDecision": {
+    "decision": "NOT_MATERIAL",
+    "determinedAt": "2025-09-29T10:00:00-04:00",
+    "decidedBy": "Disclosure Committee",
+    "rationale": "Contained within one hour; no customer data or revenue impact."
+  },
+  "severeEvidence": {
+    "category": "BUSINESS_IMPACT",
+    "summary": "Ransomware halted all order processing for 72 hours; estimated revenue loss of 40 million USD.",
+    "source": "CFO impact memo",
+    "collectedAt": "2025-09-24T09:00:00-04:00"
+  },
+  "AC09": {"determinedAt": "2025-09-29T10:00:00-04:00", "deadline": "2025-10-03"},
+  "AC10": [
+    {"case": "Friday before Columbus Day", "determinedAt": "2025-10-10T10:00:00-04:00", "deadline": "2025-10-17"},
+    {"case": "Tuesday before Thanksgiving", "determinedAt": "2025-11-25T10:00:00-05:00", "deadline": "2025-12-02"},
+    {"case": "Tuesday before New Year's Day", "determinedAt": "2025-12-30T10:00:00-05:00", "deadline": "2026-01-06"},
+    {"case": "Saturday determination", "determinedAt": "2025-10-04T10:00:00-04:00", "deadline": "2025-10-09"}
+  ],
+  "AC11": {
+    "determinedAt": "2025-09-29T10:00:00-04:00",
+    "deadline": "2025-10-03",
+    "overdueAsOf": "2025-10-06T12:00:00-04:00",
+    "onTimeFiling": {"filedAt": "2025-10-03T16:00:00-04:00", "accessionNumber": "0000000000-25-000101"},
+    "lateFiling": {"filedAt": "2025-10-06T11:00:00-04:00", "accessionNumber": "0000000000-25-000102"}
+  }
+}

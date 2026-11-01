@@ -1,4 +1,4 @@
-"""Generate the Phase 3 Q3.1 operation-status table from live probes.
+"""Generate the Q3.1 operation-status table from live probes.
 
 For every operation in openapi/contract.yaml this script sends one success-path
 request and the error-path requests the contract lists, validates bodies against
@@ -121,8 +121,15 @@ def main() -> None:
             201,
             "DecisionCreated",
             [
+                (
+                    "400",
+                    lambda: api.post(f"/incidents/{inc}/decisions", json={**decision, "decision": "PROBABLY_MATERIAL"}),
+                    400,
+                ),
                 ("401", lambda: anon.post(f"/incidents/{inc}/decisions", json=decision), 401),
                 ("404", lambda: api.post(f"/incidents/{UNKNOWN}/decisions", json=decision), 404),
+                # The success probe left the incident MATERIAL_PENDING_FILING (REQ-08).
+                ("409", lambda: api.post(f"/incidents/{inc}/decisions", json=decision), 409),
             ],
         ),
         (
@@ -157,6 +164,7 @@ def main() -> None:
             200,
             "DeadlineStatus",
             [
+                ("400", lambda: api.get(f"/incidents/{inc}/deadline-status", params={"as_of": "2025-10-01"}), 400),
                 ("401", lambda: anon.get(f"/incidents/{inc}/deadline-status"), 401),
                 ("404", lambda: api.get(f"/incidents/{UNKNOWN}/deadline-status"), 404),
             ],
@@ -169,8 +177,18 @@ def main() -> None:
             201,
             "FilingCreated",
             [
+                ("400", lambda: api.post(f"/incidents/{inc}/filing", json={"filedAt": "2025-10-02"}), 400),
                 ("401", lambda: anon.post(f"/incidents/{inc}/filing", json={}), 401),
                 ("404", lambda: api.post(f"/incidents/{UNKNOWN}/filing", json={}), 404),
+                # The success probe filed the incident; a second filing is a state conflict (REQ-08).
+                (
+                    "409",
+                    lambda: api.post(
+                        f"/incidents/{inc}/filing",
+                        json={"filedAt": "2025-10-02T14:00:00-04:00", "accessionNumber": "0000000000-25-000002"},
+                    ),
+                    409,
+                ),
             ],
         ),
         (

@@ -1,7 +1,7 @@
-# Specification issues found while implementing contract v1.0 (Phase 3)
+# Specification issues found while implementing contract v1.0 (Phases 3–4)
 
 Contract v1.0 (Phase 2 report §5.1/5.2, transcribed in `openapi/contract.yaml`) is **unchanged**.
-None of the items below has pod agreement yet. Each lists this team's interim behavior so
+None of the items below has pod agreement yet (Phase 3 items ISSUE-01…16; Phase 4 items ISSUE-17…23 at the end). Each lists this team's interim behavior so
 cross-team results can be interpreted, and the tests that depend on it are marked
 `@pytest.mark.provisional` (or skipped, for ISSUE-01).
 
@@ -32,3 +32,17 @@ described in `openapi/system-test-interface.yaml` and `openapi/tester.yaml`.
 | ISSUE-14 | **Access**: how a tester obtains a target's key | System `/test/*` and project endpoints require the shared pod key in `X-API-Key`. Tester endpoints are open, but the tester only sends a key to targets listed in its `TARGETS` setting; other `target_url` values get 400. | Keys must not go in URLs or the registry; each team must register podmate URLs in its tester. |
 | ISSUE-15 | **Which tests form the shared plan** | Our tester runs `tests/` with `-m "not provisional"`, so tests of behaviour the pod has not fixed (ISSUE-02/03/07) never count against a podmate. | Prevents failing another team on our own interim choices. |
 | ISSUE-16 | **Project-call time limits and retries** | 60 s per request (covers free-plan cold start), no retries; tester setup waits up to 120 s for system setup; run limit 600 s. | The course spec leaves these to the pod. |
+
+## Phase 4 (decisions, deadlines, filing — added 2026-10-30)
+
+Found while implementing REQ-04/05/08/09/10/11 against contract v1.0. None has pod agreement yet.
+
+| ID | Affects | Ambiguity / gap | Interim behavior (this team) | Effect on cross-team testing | Proposed resolution |
+|---|---|---|---|---|---|
+| ISSUE-17 | REQ-09, Q5.3, Q8.1 | "The pod's shared holiday list" is referenced but no list file exists, and its year range is not stated. | U.S. federal holidays per 5 U.S.C. 6103 as observed, 2023–2027, frozen in `app/deadline.py` and published as `fixtures/holidays.json`. Determinations outside 2023-01-01..2027-12-20 → 400 `INVALID_DETERMINED_AT`. Inauguration Day excluded. | A team using a different list or range diverges on deadlines near those dates; all AC-09/AC-10 dates agree. | Pod adopts `fixtures/holidays.json` (or its own) as the shared file in v1.1. |
+| ISSUE-18 | REQ-11, §5.2 | `filedAt` has no future or ordering rule (e.g. before `determinedAt`), and the Regulation S-T 5:30 pm ET cut-off is not mentioned. | Any RFC 3339 `filedAt` with offset accepted; timeliness uses its Eastern Time date only (Q3.3: "late is based on the filing date the user enters"). | Divergence possible for future or pre-determination filings. | Decide in v1.1. |
+| ISSUE-19 | REQ-10, REQ-11 | Business days late are undefined when the action falls on a weekend/holiday right after the deadline (e.g. deadline Fri, as_of or filing Sat: 0 business days elapsed, yet late). | OVERDUE/LATE count = business days in (deadline, date], minimum 1. | Only weekend/holiday dates immediately after a deadline; no AC uses them. | Fix the counting rule in v1.1. |
+| ISSUE-20 | REQ-08, Model 1 | REQ-08 lists no 409 for a new (non-correction) decision while `NOT_MATERIAL`; our redrawn Model 1 shows `NOT_MATERIAL → MATERIAL` only through a correction. | Follows REQ-08 text: a new decision on a `NOT_MATERIAL` incident is accepted (201). Test is `provisional`. | A team following Model 1 returns 409. | Pod confirms in v1.1 which source wins. |
+| ISSUE-21 | REQ-04, §5.2 | Duplicate entries in `evidenceIds`, and max lengths for `decidedBy`, `rationale`, `accessionNumber`, are unspecified. | Duplicates → 400 `INVALID_EVIDENCE_IDS`; limits 200 / 5000 / 100 characters. Tests `provisional`. | Divergence possible. | Decide in v1.1 with ISSUE-02. |
+| ISSUE-22 | REQ-10, §5.2 | `DeadlineStatus` for a `FILED` incident: the enum has no FILED value, and "null when not applicable" is the only guidance. | `NOT_APPLICABLE`, `deadline: null`, `businessDays: 0` once filed (the deadline remains on `currentDecision`). | A team returning the deadline or PENDING after filing diverges. | Decide in v1.1. |
+| ISSUE-23 | REQ-08, §6 phasing | AC-15's FILED and OPEN cases need `POST /filing`, which §6.2 schedules for Phase 5, so AC-15 cannot be completed in Phase 4 as planned. | We delivered `POST /filing` (REQ-11) in Phase 4. | A podmate that kept filing in Phase 5 returns 501 for these cases until then. | Pod notes the dependency; no contract change. |

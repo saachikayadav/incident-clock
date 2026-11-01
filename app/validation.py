@@ -120,3 +120,72 @@ def validate_evidence(data: dict[str, Any], now: datetime | None = None) -> Evid
 def to_utc(dt: datetime) -> str:
     """Serialize as RFC 3339 in UTC with a 'Z' suffix (REQ-14)."""
     return dt.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+DECISION_VALUES = ("MATERIAL", "NOT_MATERIAL")
+
+
+@dataclass(frozen=True)
+class DecisionInput:
+    decision: str
+    determined_at: datetime
+    decided_by: str
+    rationale: str
+    evidence_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class FilingInput:
+    filed_at: datetime
+    accession_number: str
+
+
+def validate_decision(data: dict[str, Any], *, discovered_at: datetime, now: datetime | None = None) -> DecisionInput:
+    """REQ-04/REQ-05 field rules. Evidence ownership is checked by the caller against the store."""
+    now = now or datetime.now(UTC)
+    if "decision" not in data or data["decision"] is None:
+        raise invalid("decision", "is required")
+    decision = data["decision"]
+    if decision not in DECISION_VALUES:
+        # Wording follows the contract's invalid-input example (Phase 2 section 5.2).
+        raise invalid("decision", "must be MATERIAL or NOT_MATERIAL")
+    determined_at = _timestamp(data, "determinedAt", now=now, allow_future=False)
+    if determined_at < discovered_at:
+        raise invalid("determinedAt", "must not be before the incident's discoveredAt")
+    decided_by = _text(data, "decidedBy")
+    rationale = _text(data, "rationale")
+    if "evidenceIds" not in data or data["evidenceIds"] is None:
+        raise invalid("evidenceIds", "is required")
+    ids = data["evidenceIds"]
+    if not isinstance(ids, list) or not ids:
+        raise invalid("evidenceIds", "must be a non-empty array of evidence IDs")
+    if not all(isinstance(i, str) and i.strip() for i in ids):
+        raise invalid("evidenceIds", "must contain only non-empty strings")
+    if len(set(ids)) != len(ids):
+        raise invalid("evidenceIds", "must not contain duplicates")
+    return DecisionInput(decision, determined_at, decided_by, rationale, tuple(ids))
+
+
+def validate_filing(data: dict[str, Any], now: datetime | None = None) -> FilingInput:
+    """REQ-11 field rules. The contract states no future/order rule for filedAt (ISSUE-18)."""
+    now = now or datetime.now(UTC)
+    filed_at = _timestamp(data, "filedAt", now=now, allow_future=True)
+    accession_number = _text(data, "accessionNumber")
+    return FilingInput(filed_at, accession_number)
+
+
+def parse_as_of(raw: str | None) -> datetime | None:
+    """Optional `as_of` query value (REQ-10). None if absent; 400 if malformed.
+
+    A '+' offset sent unencoded in a query string arrives as a space; it is restored so
+    `as_of=2025-10-06T12:00:00+00:00` works whether or not the client encoded it.
+    """
+    if raw is None:
+        return None
+    value = raw.strip()
+    if len(value) >= 6 and value[-6] == " ":
+        value = value[:-6] + "+" + value[-5:]
+    dt = parse_rfc3339(value)
+    if dt is None:
+        raise invalid("as_of", "must be an RFC 3339 timestamp with a timezone offset")
+    return dt

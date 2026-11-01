@@ -57,13 +57,26 @@ def seed(c: httpx.Client) -> dict[str, str]:
         r.raise_for_status()
         created[r.json()["incidentId"]] = title
     first = next(iter(created))
-    c.post(
+    ev = c.post(
         f"/incidents/{first}/evidence",
         json={"category": "TECHNICAL", "summary": "probe", "source": "probe", "collectedAt": "2025-09-22T15:00:00Z"},
-    ).raise_for_status()
+    )
+    ev.raise_for_status()
+    # Phase 4: a MATERIAL decision and its stored deadline must also survive (AC-09 dates).
+    dec = c.post(
+        f"/incidents/{first}/decisions",
+        json={
+            "decision": "MATERIAL",
+            "determinedAt": "2025-09-29T10:00:00-04:00",
+            "decidedBy": "Persistence check",
+            "rationale": "probe",
+            "evidenceIds": [ev.json()["evidenceId"]],
+        },
+    )
+    dec.raise_for_status()
     STATE.parent.mkdir(exist_ok=True)
-    STATE.write_text(json.dumps({"created": created, "evidenceOn": first}))
-    print(f"seeded {len(created)} incidents (+1 evidence on {first})")
+    STATE.write_text(json.dumps({"created": created, "evidenceOn": first, "decision": dec.json()["decisionId"]}))
+    print(f"seeded {len(created)} incidents (+1 evidence and 1 MATERIAL decision on {first})")
     return created
 
 
@@ -89,8 +102,15 @@ def verify(c: httpx.Client) -> bool:
             missing.append(incident_id)
         elif r.json()["title"] != title:
             wrong.append(incident_id)
-    ev = c.get(f"/incidents/{state['evidenceOn']}").json().get("evidence", [])
-    ok = not missing and not wrong and len(ev) == 1
+    probe = c.get(f"/incidents/{state['evidenceOn']}").json()
+    ev = probe.get("evidence", [])
+    current = probe.get("currentDecision") or {}
+    decision_ok = (
+        "decision" not in state
+        or (current.get("decisionId") == state["decision"] and current.get("deadline") == "2025-10-03")
+        and probe.get("status") == "MATERIAL_PENDING_FILING"
+    )
+    ok = not missing and not wrong and len(ev) == 1 and decision_ok
     result = {
         "checkedAt": datetime.now(UTC).isoformat(),
         "target": str(c.base_url),
@@ -99,6 +119,7 @@ def verify(c: httpx.Client) -> bool:
         "incidentsFound": len(created) - len(missing),
         "titleMismatches": len(wrong),
         "evidenceSurvived": len(ev) == 1,
+        "decisionSurvived": decision_ok,
         "pass": ok,
     }
     REPORT.write_text(json.dumps(result, indent=2))

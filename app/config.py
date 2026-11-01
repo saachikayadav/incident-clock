@@ -38,4 +38,7 @@ MAX_LEN = {
     "reporterName": 200,
     "summary": 5000,
     "source": 500,
+    "decidedBy": 200,
+    "rationale": 5000,
+    "accessionNumber": 100,
 }

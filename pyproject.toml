@@ -1,6 +1,6 @@
 [project]
 name = "incident-clock"
-version = "0.3.0"
+version = "0.4.0"
 description = "IncidentClock - SEC Form 8-K Item 1.05 incident and deadline tracker (course project)"
 requires-python = ">=3.12"
 
@@ -26,5 +26,5 @@ ignore = ["S101"]  # assert is idiomatic in pytest and used as an invariant guar
 [tool.mypy]
 python_version = "3.12"
 strict = true
-files = ["app", "scripts", "tests", "tester", "tester_tests"]
+files = ["app", "scripts", "tests", "tester", "tester_tests", "unit_tests"]
 ignore_missing_imports = true

@@ -143,3 +143,44 @@ def create_incident(api: httpx.Client, **overrides: Any) -> str:
 
 def now_utc() -> datetime:
     return datetime.now(UTC)
+
+
+# ---- Phase 4 helpers -------------------------------------------------------
+
+FIXTURES_P4: dict[str, Any] = json.loads(
+    (Path(__file__).resolve().parent.parent / "fixtures" / "phase4.json").read_text()
+)
+
+
+def add_evidence(api: httpx.Client, incident_id: str, **overrides: Any) -> str:
+    r = api.post(f"/incidents/{incident_id}/evidence", json=valid_evidence(**overrides))
+    assert r.status_code == 201, r.text
+    return str(r.json()["evidenceId"])
+
+
+def decision_body(evidence_ids: list[str], base: str = "materialDecision", **overrides: Any) -> dict[str, Any]:
+    body = dict(FIXTURES_P4[base])
+    body["evidenceIds"] = evidence_ids
+    body.update(overrides)
+    return body
+
+
+def incident_with_evidence(api: httpx.Client) -> tuple[str, str]:
+    incident_id = create_incident(api)
+    return incident_id, add_evidence(api, incident_id)
+
+
+def decide(
+    api: httpx.Client, incident_id: str, evidence_id: str, base: str = "materialDecision", **overrides: Any
+) -> Any:
+    r = api.post(f"/incidents/{incident_id}/decisions", json=decision_body([evidence_id], base, **overrides))
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+def material_incident(api: httpx.Client, determined_at: str | None = None) -> str:
+    """An incident in MATERIAL_PENDING_FILING (AC-09 determination unless overridden)."""
+    incident_id, evidence_id = incident_with_evidence(api)
+    overrides = {} if determined_at is None else {"determinedAt": determined_at}
+    decide(api, incident_id, evidence_id, **overrides)
+    return incident_id
