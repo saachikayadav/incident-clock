@@ -1,0 +1,4 @@
+# Web frontend dependencies (separate from the API service).
+flask==3.1.2
+httpx==0.28.1
+tzdata==2025.2  # IANA zones for Eastern Time display where the OS has no tz database
