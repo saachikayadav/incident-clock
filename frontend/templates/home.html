@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% from "_macros.html" import text_field, datetime_field, form_error with context %}
+{% block content %}
+<div class="health health-{{ health }}">
+  API {{ {'ok': 'connected', 'degraded': 'up, database unavailable', 'down': 'unreachable'}[health] }}
+</div>
+
+<div class="grid">
+  <section class="card" id="report">
+    <h1>Report an incident</h1>
+    {{ form_error(errors) }}
+    <form method="post" action="{{ url_for('create_incident') }}" novalidate>
+      {{ text_field('title', 'Title', form, errors, 200) }}
+      {{ text_field('description', 'Description', form, errors, 5000, multiline=true) }}
+      {{ datetime_field('discoveredAt', 'Discovered at', form, errors, 'Local time where it happened, plus its UTC offset. Can’t be in the future.') }}
+      {{ text_field('reporterName', 'Reported by', form, errors, 200) }}
+      <button type="submit" class="primary">Create incident</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Recent incidents</h2>
+    {% if recent %}
+      <ul class="recent">
+        {% for r in recent %}
+          <li><a href="{{ url_for('incident', incident_id=r.id) }}"><span class="mono">{{ r.id }}</span> {{ r.title }}</a></li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">Incidents you create or open in this browser appear here. To open any other incident, enter its ID at the top of the page.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}
