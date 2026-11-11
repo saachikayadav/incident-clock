@@ -13,6 +13,11 @@ Security: the target's API key is sent only to targets registered in the TARGETS
 environment variable (JSON object {"https://base-url": "api-key", ...}). Any other
 target_url is rejected with 400, so the tester cannot be used to leak keys.
 Sessions and reports live in memory: a restart or free-plan spin-down clears them.
+
+Setup resilience: before POST /test/setup the tester polls the target's public GET /health
+(free hosts sleep), and retries setup while the hosting layer answers 502/503/504 or a
+non-JSON 5xx, all within TESTER_SETUP_TIMEOUT_SECONDS. A JSON error from the system itself is
+forwarded unchanged; a gateway error that persists becomes 500 with source "communication".
 """
 
 from __future__ import annotations
@@ -42,6 +47,9 @@ ROOT = Path(__file__).resolve().parent.parent
 SETUP_TIMEOUT = float(os.environ.get("TESTER_SETUP_TIMEOUT_SECONDS", "120"))
 RUN_TIMEOUT = float(os.environ.get("TESTER_RUN_TIMEOUT_SECONDS", "600"))
 REQUEST_TIMEOUT = float(os.environ.get("TESTER_REQUEST_TIMEOUT_SECONDS", "60"))
+WAKE_POLL_SECONDS = float(os.environ.get("TESTER_WAKE_POLL_SECONDS", "3"))
+SETUP_RETRY_SECONDS = float(os.environ.get("TESTER_SETUP_RETRY_SECONDS", "5"))
+GATEWAY_STATUSES = {502, 503, 504}
 VERSION = (os.environ.get("SERVICE_VERSION") or os.environ.get("RENDER_GIT_COMMIT") or "dev")[:12]
 
 
@@ -207,23 +215,74 @@ def create_app() -> FastAPI:
     return app
 
 
+def _is_gateway_failure(r: httpx.Response, body: Any) -> bool:
+    """A hosting-layer answer (502/503/504 or a non-JSON 5xx): the target app did not respond itself.
+
+    Free hosts (Render, Cloud Run) answer this way while an instance is waking up, restarting
+    or redeploying. A JSON error body with a message is the system's own answer and is forwarded.
+    """
+    if r.status_code in GATEWAY_STATUSES:
+        return not (isinstance(body, dict) and isinstance(body.get("message"), str))
+    return r.status_code >= 500 and not isinstance(body, dict)
+
+
+def _wake_target(target: str, deadline: float) -> None:
+    """Best effort: poll the public GET /health until 200 so a sleeping target is up before setup."""
+    while time.monotonic() < deadline:
+        try:
+            r = httpx.get(f"{target}/health", timeout=max(1.0, min(30.0, deadline - time.monotonic())))
+            if r.status_code == 200:
+                return
+        except httpx.HTTPError:
+            pass
+        time.sleep(min(WAKE_POLL_SECONDS, max(0.0, deadline - time.monotonic())))
+
+
 def _prepare_target(target: str, key: str, session_id: str) -> tuple[int, dict[str, str]]:
-    """Call the target's POST /test/setup and translate the outcome for our caller."""
-    try:
-        r = httpx.post(
-            f"{target}/test/setup",
-            json={"session_id": session_id, "setup": {}},
-            headers={"X-API-Key": key},
-            timeout=SETUP_TIMEOUT,
-        )
-    except httpx.TimeoutException:
-        return 500, {"message": f"target setup did not respond within {SETUP_TIMEOUT:.0f} s", "source": "communication"}
-    except httpx.TransportError as exc:
-        return 500, {"message": f"could not reach target setup: {type(exc).__name__}", "source": "communication"}
-    try:
-        body = r.json()
-    except ValueError:
-        body = None
+    """Call the target's POST /test/setup and translate the outcome for our caller.
+
+    The whole step is bounded by SETUP_TIMEOUT: wake the target, then retry setup while the
+    hosting layer (not the system) answers with a gateway error.
+    """
+    deadline = time.monotonic() + SETUP_TIMEOUT
+    _wake_target(target, min(deadline, time.monotonic() + SETUP_TIMEOUT / 2))
+    attempt = 0
+    while True:
+        attempt += 1
+        remaining = deadline - time.monotonic()
+        try:
+            r = httpx.post(
+                f"{target}/test/setup",
+                json={"session_id": session_id, "setup": {}},
+                headers={"X-API-Key": key},
+                timeout=max(5.0, remaining),
+            )
+        except httpx.TimeoutException:
+            return 500, {
+                "message": f"target setup did not respond within {SETUP_TIMEOUT:.0f} s",
+                "source": "communication",
+            }
+        except httpx.TransportError as exc:
+            if deadline - time.monotonic() > SETUP_RETRY_SECONDS:
+                time.sleep(SETUP_RETRY_SECONDS)
+                continue
+            return 500, {"message": f"could not reach target setup: {type(exc).__name__}", "source": "communication"}
+        try:
+            body = r.json()
+        except ValueError:
+            body = None
+        if not _is_gateway_failure(r, body):
+            break
+        if deadline - time.monotonic() <= SETUP_RETRY_SECONDS:
+            return 500, {
+                "message": (
+                    f"target hosting layer answered HTTP {r.status_code} without a system error body "
+                    f"on {attempt} attempt(s) over {SETUP_TIMEOUT:.0f} s; the system service is not "
+                    "running (crashed, restarting, redeploying or asleep). Check the host's logs"
+                ),
+                "source": "communication",
+            }
+        time.sleep(SETUP_RETRY_SECONDS)
     if r.status_code == 201:
         if isinstance(body, dict) and body.get("session_id") == session_id:
             return 201, {}
