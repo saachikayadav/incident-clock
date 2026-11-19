@@ -12,7 +12,7 @@ Source of truth for each model:
 | M2 Information model | ER / schema | `app/schema.sql` (tables, keys, checks, triggers) |
 | M3 Deadline calculation | Activity | `app/deadline.py` (`filing_deadline`, `deadline_status`, `days_late`) |
 | M4 Request check order | Activity | `_observe` middleware + handlers in `app/main.py`; 409 inside the Store transaction |
-| A1 Architecture & data flow | Component | `app/`, `tester/` modules; `render.yaml`; Phase 2 Q7.1 |
+| A1 Architecture & data flow | Component | `app/`, `tester/`, `frontend/` modules; `render.yaml`; Phase 2 Q7.1 |
 | T1 Cross-team test session | Sequence | `tester/main.py`, `/test/*` routes in `app/main.py`; course testing interface |
 
 ---
@@ -23,6 +23,11 @@ Source of truth for each model:
 flowchart LR
   G["Grader / podmate<br/>(HTTP client)"]
   PT["Podmate tester"]
+  U["Browser user"]
+
+  subgraph FE["Render web service: incident-clock-frontend (Python, gunicorn)"]
+    FA["frontend/app.py (Flask)<br/>incident + evidence forms · explicit UTC offset<br/>UTC + Eastern display · API key held server-side"]
+  end
 
   subgraph TS["Render web service: incident-clock-tester (Docker)"]
     TA["tester/main.py<br/>/test/setup · /test/run · /test/report<br/>sessions + reports in memory"]
@@ -52,6 +57,8 @@ flowchart LR
   TP -- "pod contract v1.0 requests" --> MW
   PT -- "same interface" --> MW
   G -- "direct testing" --> MW
+  U -- "HTML forms" --> FA
+  FA -- "pod contract v1.0 requests<br/>(X-API-Key)" --> MW
   MW --> H
   MW --> TI
   TI --> CV
@@ -63,6 +70,7 @@ flowchart LR
   TA -- "run events" --> LOG
   GH -- "commit SHA → X-Service-Version / tester_version" --> SYS
   GH --> TS
+  GH --> FE
   H --> D
   H -.-> C
 
