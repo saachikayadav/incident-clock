@@ -76,6 +76,21 @@ export API_KEY=test-key DATABASE_URL=postgresql://postgres@localhost:5432/incide
 scripts/serve_local.sh start            # uvicorn on :8000, logs in reports/service.log
 ```
 
+### Web frontend (Flask)
+
+A server-rendered UI in `frontend/` for the operations built so far: create an incident,
+open one by ID, view its evidence, and add evidence. The Flask app calls the API with
+the key, so the key never reaches the browser and the API needs no CORS.
+
+```bash
+pip install -r frontend/requirements.txt
+export INCIDENT_API_URL=http://localhost:8000 API_KEY=test-key   # FLASK_SECRET_KEY optional
+python frontend/app.py                  # http://127.0.0.1:5001
+```
+
+The API has no list operation, so "Recent incidents" holds only the incidents this
+browser created or opened.
+
 ## Test any team's service (no code changes)
 
 ```bash

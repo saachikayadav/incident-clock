@@ -1,0 +1,53 @@
+{% macro field_error(errors, name) -%}
+  {% if errors.get(name) %}<p class="field-error" id="{{ name }}-error">{{ errors[name] }}</p>{% endif %}
+{%- endmacro %}
+
+{% macro form_error(errors) -%}
+  {% if errors.get('_form') %}<p class="alert">{{ errors['_form'] }}</p>{% endif %}
+{%- endmacro %}
+
+{# Local date/time plus an explicit, required UTC offset: the API refuses timestamps
+   without one, so the frontend never guesses. app.js preselects the browser's offset. #}
+{% macro datetime_field(name, label, form, errors, hint) -%}
+  <label for="{{ name }}">{{ label }}</label>
+  <div class="datetime">
+    <input type="datetime-local" id="{{ name }}" name="{{ name }}" value="{{ form.get(name, '') }}"
+           step="1" required data-offset-target="{{ name }}_offset"
+           {% if errors.get(name) %}aria-invalid="true" aria-describedby="{{ name }}-error"{% endif %}>
+    <select name="{{ name }}_offset" id="{{ name }}_offset" aria-label="{{ label }} UTC offset" required
+            {% if errors.get(name) %}aria-invalid="true"{% endif %}>
+      <option value="">UTC offset…</option>
+      {% for o, zones in utc_offsets.items() %}
+        <option value="{{ o }}" {% if form.get(name ~ '_offset') == o %}selected{% endif %}>UTC{{ o }}{% if zones %} ({{ zones }}){% endif %}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <p class="hint">{{ hint }}</p>
+  {{ field_error(errors, name) }}
+{%- endmacro %}
+
+{# The limit is shown in the label with a live counter (app.js). There is no maxlength
+   attribute: browsers silently cut pasted text at the limit, so instead the counter goes
+   red and the API's 400 names the field if an over-limit value is submitted. #}
+{% macro text_field(name, label, form, errors, maxlength, multiline=false) -%}
+  {% set value = form.get(name, '') %}
+  {% set limit = '{:,}'.format(maxlength) %}
+  <label for="{{ name }}">{{ label }} <span class="limit">(max {{ limit }} characters)</span></label>
+  {% if multiline %}
+    <textarea id="{{ name }}" name="{{ name }}" rows="4" data-maxlength="{{ maxlength }}" required
+      aria-describedby="{{ name }}-count{% if errors.get(name) %} {{ name }}-error{% endif %}"
+      {% if errors.get(name) %}aria-invalid="true"{% endif %}>{{ value }}</textarea>
+  {% else %}
+    <input id="{{ name }}" name="{{ name }}" value="{{ value }}" data-maxlength="{{ maxlength }}" required
+      aria-describedby="{{ name }}-count{% if errors.get(name) %} {{ name }}-error{% endif %}"
+      {% if errors.get(name) %}aria-invalid="true"{% endif %}>
+  {% endif %}
+  <p class="counter{% if value | length > maxlength %} over{% endif %}" id="{{ name }}-count">
+    {{ '{:,}'.format(value | length) }} / {{ limit }}{% if value | length > maxlength %} ({{ '{:,}'.format(value | length - maxlength) }} over the limit){% endif %}
+  </p>
+  {{ field_error(errors, name) }}
+{%- endmacro %}
+
+{% macro utc_time(value) -%}
+  <time datetime="{{ value }}" title="{{ value }}">{{ value | utc }}</time>
+{%- endmacro %}
