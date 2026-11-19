@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% from "_macros.html" import text_field, datetime_field, form_error, field_error, utc_time with context %}
+{% block title %}{{ incident.incidentId }} · IncidentClock{% endblock %}
+{% block content %}
+<section class="card">
+  <div class="incident-head">
+    <span class="mono muted">{{ incident.incidentId }}</span>
+    <span class="badge status-{{ incident.status | lower }}">{{ incident.status | replace('_', ' ') }}</span>
+  </div>
+  <h1>{{ incident.title }}</h1>
+  <p class="description">{{ incident.description }}</p>
+  <dl class="meta">
+    <dt>Discovered</dt><dd>{{ utc_time(incident.discoveredAt) }}</dd>
+    <dt>Reported by</dt><dd>{{ incident.reporterName }}</dd>
+    <dt>Evidence</dt><dd>{{ incident.evidence | length }} item{{ '' if incident.evidence | length == 1 else 's' }}</dd>
+  </dl>
+</section>
+
+<div class="grid">
+  <section class="card" id="evidence">
+    <h2>Evidence</h2>
+    {% if incident.evidence %}
+      <ol class="evidence">
+        {% for e in incident.evidence %}
+          <li>
+            <div class="evidence-head">
+              <span class="tag tag-{{ e.category | lower }}">{{ category_label(e.category) }}</span>
+              <span class="mono muted">{{ e.evidenceId }}</span>
+            </div>
+            <p class="summary">{{ e.summary }}</p>
+            <p class="muted small">
+              Source: {{ e.source }} · Collected {{ utc_time(e.collectedAt) }} · Recorded {{ utc_time(e.recordedAt) }}
+            </p>
+          </li>
+        {% endfor %}
+      </ol>
+    {% else %}
+      <p class="muted">No evidence yet.</p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Add evidence</h2>
+    <p class="muted small">Records are permanent and cannot be edited after they are saved.</p>
+    {{ form_error(errors) }}
+    <form method="post" action="{{ url_for('add_evidence', incident_id=incident.incidentId) }}" novalidate>
+      <label for="category">Category</label>
+      <select id="category" name="category" required
+        {% if errors.get('category') %}aria-invalid="true" aria-describedby="category-error"{% endif %}>
+        <option value="">Choose…</option>
+        {% for value, label in categories.items() %}
+          <option value="{{ value }}" {% if form.get('category') == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      {{ field_error(errors, 'category') }}
+      {{ text_field('summary', 'Summary', form, errors, 5000, multiline=true) }}
+      {{ text_field('source', 'Source', form, errors, 500) }}
+      {{ datetime_field('collectedAt', 'Collected at', form, errors, 'Local time it was gathered, plus its UTC offset.') }}
+      <button type="submit" class="primary">Add evidence</button>
+    </form>
+  </section>
+</div>
+
+<section class="next-step">
+  <div>
+    <strong>Done with {{ incident.incidentId }}?</strong>
+    <span class="muted">Everything you've added is saved. You can come back to it from Recent incidents.</span>
+  </div>
+  <a class="button primary" href="{{ url_for('home') }}#report">Report another incident</a>
+</section>
+{% endblock %}
