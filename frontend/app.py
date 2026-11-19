@@ -190,7 +190,7 @@ def create_app(
             remember(incident_id, payload["title"])
             flash(f"Created {incident_id} with status {result.body.get('status', 'OPEN')}.")
             return redirect(url_for("incident", incident_id=incident_id))
-        #400 error recieved for timestamp being off
+        # 400 error recieved for timestamp being off
         return render_home(form, field_errors(result), 400)
 
     @app.get("/open")
