@@ -17,7 +17,7 @@ Deployed services (see `render.yaml`):
 |---|---|---|
 | System | `https://incident-clock.onrender.com` (interactive docs at `/docs`) | Pod contract v1.0 (`openapi/contract.yaml`) + `/test/setup`, `/test/report` (`openapi/system-test-interface.yaml`) |
 | Tester | `https://incident-clock-tester.onrender.com` | `/test/setup`, `/test/run`, `/test/report` (`openapi/tester.yaml`) |
-| Web frontend | `https://incident-clock-frontend.onrender.com` (after the Blueprint sync) | Browser UI for incidents and evidence (`frontend/`); not part of the pod contract |
+| Web frontend | `https://incident-clock-frontend.onrender.com` | Browser UI for incidents and evidence (`frontend/`); not part of the pod contract |
 
 ## Status by requirement
 
