@@ -1,5 +1,6 @@
-# Render Blueprint: system (Docker web service + Postgres) and tester (Docker web service).
-# Both deploy only after GitHub checks (CI) pass on the commit.
+# Render Blueprint: system (Docker web service + Postgres), tester (Docker web service),
+# and web frontend (Python web service, frontend/).
+# All deploy only after GitHub checks (CI) pass on the commit.
 services:
   - type: web
     name: incident-clock
@@ -28,6 +29,22 @@ services:
     envVars:
       - key: TARGETS
         sync: false            # JSON {"https://<system base URL>": "<api key>", ...}; only these targets are testable
+
+  - type: web
+    name: incident-clock-frontend
+    runtime: python
+    plan: free
+    region: ohio
+    buildCommand: pip install -r frontend/requirements.txt
+    startCommand: gunicorn --chdir frontend --bind 0.0.0.0:$PORT "app:create_app()"
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: INCIDENT_API_URL
+        value: https://incident-clock.onrender.com
+      - key: API_KEY
+        sync: false            # enter in the dashboard; same key as incident-clock
+      - key: FLASK_SECRET_KEY
+        generateValue: true
 
 databases:
   - name: incident-clock-db

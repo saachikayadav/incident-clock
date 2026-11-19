@@ -11,12 +11,13 @@ four-business-day deadline calculator (Eastern Time, federal holidays), deadline
 testing interface (tester service + system `/test/setup` / `/test/report`). Corrections and the
 timeline arrive in Phase 5.
 
-Two deployed services (see `render.yaml`):
+Deployed services (see `render.yaml`):
 
 | Service | Base URL | Description |
 |---|---|---|
 | System | `https://incident-clock.onrender.com` (interactive docs at `/docs`) | Pod contract v1.0 (`openapi/contract.yaml`) + `/test/setup`, `/test/report` (`openapi/system-test-interface.yaml`) |
 | Tester | `https://incident-clock-tester.onrender.com` | `/test/setup`, `/test/run`, `/test/report` (`openapi/tester.yaml`) |
+| Web frontend | `https://incident-clock-frontend.onrender.com` (after the Blueprint sync) | Browser UI for incidents and evidence (`frontend/`); not part of the pod contract |
 
 ## Status by requirement
 
@@ -84,9 +85,10 @@ which only creates a role for your macOS user), either create the role once with
 
 ### Web frontend (Flask)
 
-A server-rendered UI in `frontend/` for the operations built so far: create an incident,
-open one by ID, view its evidence, and add evidence. The Flask app calls the API with
-the key, so the key never reaches the browser and the API needs no CORS.
+A server-rendered UI in `frontend/`: create an incident, find one by ID, view it with its
+evidence, and add evidence. Phase 4 operations (decisions, deadline status, filing) are
+not in the UI yet; use the API or `/docs` for them. The Flask app calls the API with the
+key, so the key never reaches the browser and the API needs no CORS.
 
 **Prerequisite:** the API must be running (steps above, or a deployed URL).
 
@@ -113,7 +115,8 @@ The backend runs in the background, so one terminal is enough: start the API wit
 Notes:
 
 - `python frontend/app.py` starts Flask's development server with debug on. It is for
-  local use only, not for deployment.
+  local use only. Render runs it with gunicorn instead (see `render.yaml`).
+- The deployed frontend has no login: anyone with its URL can create incidents through it.
 - Times are entered as local time plus an explicit UTC offset (the API refuses timestamps
   without one) and shown in UTC with Eastern Time in parentheses.
 - The API has no list operation, so "Recent incidents" holds only the incidents this
@@ -205,7 +208,9 @@ events. Bodies and `X-API-Key` are never logged. Every response carries `X-Reque
 
 - Corrections and timeline return `501` until Phase 5.
 - Deadlines are supported for determinations 2023-01-01..2027-12-20 (holiday list range, ISSUE-17).
-- Free plan: 15-minute idle spin-down (~60 s cold start); the free database expires 2026-11-17.
+- Free plan: 15-minute idle spin-down (~60 s cold start). The free database expires 30 days after
+  creation; it expired 2026-11-17, was recreated empty on 2026-11-19, and expires again around 2026-12-19.
+- The web frontend has no Phase 4 screens and no login (anyone with its URL can create incidents).
 - One test session per system; concurrent runs reset each other's data (docs/spec-issues.md ISSUE-12).
 - AC-02's "count unchanged" check cannot run: contract v1.0 has no list operation (ISSUE-01).
 

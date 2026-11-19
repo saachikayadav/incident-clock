@@ -2,9 +2,11 @@
 
 Evidence base: commit `d386109` on a local service against PostgreSQL 16, 2026-10-30 18:49 UTC
 (full suite, tester → system grader sequence, operation-status probes, persistence check, mutation
-checks). Nothing in this phase has been deployed or pushed yet. **[DEPLOY]** marks values that must
-be replaced with results from the deployed service; **[TEAM]** marks facts only the team or pod has.
-Replace every marker before submitting.
+checks). The increment was developed locally as `d386109` and pushed to `main` as `851b418`
+(2026-11-01, CI passed); the deployed service has run it since. Updated 2026-11-19 with the
+deployed version, CI links, the database expiry and recreation, and the web frontend.
+**[DEPLOY]** marks values that need the deployed API key to collect; **[TEAM]** marks facts only
+the team or pod has. Replace every marker before submitting.
 
 ---
 
@@ -40,12 +42,12 @@ Everything in the Phase 4 milestone (Phase 2, Section 6.2) was delivered: the de
 
 ### Q2.1 Deployed web service
 
-Unchanged from Phase 3: two Docker web services (Python 3.12 + uvicorn) defined in `render.yaml`, region Ohio, free plan, with a Render Postgres 16 database [4]. System `https://incident-clock.onrender.com`; tester `https://incident-clock-tester.onrender.com`. Every response's `X-Service-Version` header and every tester report's `tester_version` hold the first 12 characters of `RENDER_GIT_COMMIT`, which maps the running service to a commit [5]; the Phase 4 commit is `d386109` **[DEPLOY: confirm the header shows `d3861096561e` or the later SHA you deploy]**. A release is a merge to `main`. CI then runs static checks, deadline unit tests and the contract suite, and Render deploys only after those checks pass (`autoDeployTrigger: checksPass`) [4]. The schema change ships with the code, because the service applies `schema.sql` (`CREATE … IF NOT EXISTS`) on startup. The new tables are created on the first boot of `d386109`, and existing incidents and evidence are kept. The service is not always on: free services spin down after 15 idle minutes and take about a minute to wake [6]. The free database expires 30 days after creation [6]. Ours was created 2026-10-18, so **it expires 2026-11-17, before Phase 5 ends** **[TEAM: upgrade or recreate, see LIM-02]**. Podmates should send `GET /health` and wait for 200 before timing anything, announce runs in the pod channel (every test calls `POST /reset`), and fetch tester reports promptly (in-memory).
+As in Phase 3: two Docker web services (Python 3.12 + uvicorn) defined in `render.yaml`, region Ohio, free plan, with a Render Postgres 16 database [4]. New: `render.yaml` also defines a third web service, `incident-clock-frontend` (Python, gunicorn), which serves the browser UI in `frontend/` and calls the system API server-side with the API key (see LIM-15, LIM-16). It is not part of the pod contract and not needed for cross-team testing **[DEPLOY: confirm `https://incident-clock-frontend.onrender.com` after the Blueprint sync]**. System `https://incident-clock.onrender.com`; tester `https://incident-clock-tester.onrender.com`. Every response's `X-Service-Version` header and every tester report's `tester_version` hold the first 12 characters of `RENDER_GIT_COMMIT`, which maps the running service to a commit [5]; the Phase 4 commit is `851b418` (local `d386109` before the push). On 2026-11-19 the header showed `e1efa65e2c99`, the current `main`, which is Phase 4 plus the web frontend source and README updates. A release is a merge to `main`. CI then runs static checks, deadline unit tests and the contract suite, and Render deploys only after those checks pass (`autoDeployTrigger: checksPass`) [4]. The schema change ships with the code, because the service applies `schema.sql` (`CREATE … IF NOT EXISTS`) on startup. The new tables are created on the first boot of `d386109`, and existing incidents and evidence are kept. The service is not always on: free services spin down after 15 idle minutes and take about a minute to wake [6]. The free database expires 30 days after creation [6]. Ours was created 2026-10-18 and expired on 2026-11-17: the service then failed its startup database check and never answered `/health`, while the tester (no database) stayed up. On 2026-11-19 we deleted it, recreated `incident-clock-db` from the Blueprint, and redeployed; `/health` returned `{"status":"ok"}`. The schema was applied on startup, but all earlier incidents, evidence, decisions and filings were lost, and the new database expires around 2026-12-19 **[TEAM: upgrade, or recreate before 2026-12-19; see LIM-02]**. Podmates should send `GET /health` and wait for 200 before timing anything, announce runs in the pod channel (every test calls `POST /reset`), and fetch tester reports promptly (in-memory).
 
 ### Q2.2 Registry and team documentation
 
 Registry entry: **[TEAM: class registry location]** │ Updated on: **[date]**. The entry is unchanged in URLs (system and tester base URLs above). Update its notes to say "Phase 4: decisions, deadline-status (`as_of`), filing implemented; corrections and timeline return 501".
-Team documentation: `README.md` (status by requirement, operations), `docs/models.md` + `docs/diagrams/*.png` (A1, T1, M1–M4), `docs/spec-issues.md` (ISSUE-17…23 new), `fixtures/holidays.json`, `openapi/contract.yaml` in `github.com/saachikayadav/incident-clock` │ Updated on: **[TEAM: date of push]**
+Team documentation: `README.md` (status by requirement, operations, local run instructions for the API and the web frontend), `docs/models.md` + `docs/diagrams/*.png` (A1, T1, M1–M4), `docs/spec-issues.md` (ISSUE-17…23 new), `fixtures/holidays.json`, `openapi/contract.yaml` in `github.com/saachikayadav/incident-clock` │ Updated on: 2026-11-01 (Phase 4, `851b418`); 2026-11-19 (web frontend and README run instructions, `e1efa65`)
 
 ### Q2.3 Operational experience supported by observability evidence
 
@@ -149,19 +151,20 @@ Oracles: every expected date and count comes from the Phase 2 acceptance criteri
 
 ### Q4.3 Regression and static checks
 
-CI run: **[DEPLOY: link to the Actions run for `d386109` after push]**
+CI run: Phase 4 commit `851b418`, 2026-11-01, success: https://github.com/saachikayadav/incident-clock/actions/runs/41352112845. Current `main` `e1efa65`, 2026-11-19, success: https://github.com/saachikayadav/incident-clock/actions/runs/44633327147
 
 Every push and pull request re-runs the complete suite against a fresh PostgreSQL 16 container. This includes all 86 Phase 3 contract tests unchanged alongside the 69 new Phase 4 tests, the persistence check (now including a decision), the operation-status probe, the system `/test/*` checks, and a full tester → system run. After the Phase 4 code changes and before any new test was added, the unchanged Phase 3 suite passed against the modified service (84 pass, 2 skip, identical to Phase 3); it was re-run after every later change. Render deploys only commits whose checks passed (`checksPass`) [4], so a regression cannot reach the deployed service through the normal release path.
 
 ### Q4.4 Static checks
 
-CI run: **[DEPLOY: same link]**
+CI run: same runs as Q4.3 (the `static` job).
 
-Unchanged from Phase 3, with one addition: ruff lint (including security rules `S`) and format check, mypy `--strict` (now also over `unit_tests/`), `openapi-spec-validator` on all three API documents, `pip-audit` on both dependency sets, tester self-tests, and **new: the deadline unit tests**. All run in the `static` job, which the contract-test job depends on, so a failing check stops testing and, through `checksPass`, deployment. Ruff's `S608` rule flagged a dynamically built SQL string (the optional `FOR UPDATE` clause) during this phase, and we replaced it with two literal queries. Blocking merges additionally requires branch protection on `main` **[TEAM: confirm whether "require status checks" is enabled]**.
+Unchanged from Phase 3, with one addition: ruff lint (including security rules `S`) and format check, mypy `--strict` (now also over `unit_tests/`), `openapi-spec-validator` on all three API documents, `pip-audit` on both dependency sets, tester self-tests, and **new: the deadline unit tests**. All run in the `static` job, which the contract-test job depends on, so a failing check stops testing and, through `checksPass`, deployment. Ruff's `S608` rule flagged a dynamically built SQL string (the optional `FOR UPDATE` clause) during this phase, and we replaced it with two literal queries. Branch protection is not enabled: on 2026-11-19 GitHub reported `main` as unprotected with no required status checks. A pull request with failing checks can therefore still be merged, although `checksPass` keeps such a commit from deploying **[TEAM: enable "Require status checks to pass" on `main`]**.
 
 ### Q4.5 Test results against the deployed system
 
-Run date/time: **[DEPLOY]** │ Version tested: **[DEPLOY: SHA from `X-Service-Version`]**
+Not yet run against the deployed service: it needs the deployed API key, which is a Render secret (the local `test-key` is rejected with 401). Because the database was recreated on 2026-11-19, run it now: `BASE_URL=https://incident-clock.onrender.com API_KEY=<key> python -m pytest`, then `python scripts/operation_status.py`. Announce the run in the pod channel first, since every test calls `POST /reset`.
+Run date/time: **[DEPLOY]** │ Version tested: **[DEPLOY: SHA from `X-Service-Version`; `e1efa65e2c99` as of 2026-11-19]**
 Tests run: **[DEPLOY]** │ Passed: **[DEPLOY]** │ Failed: **[DEPLOY]** │ Skipped: **[DEPLOY]**
 
 Reference result at `d386109`, local service, 2026-10-30 18:49 UTC: full suite 155 collected, 153 passed, 0 failed, 2 skipped; contract-only (`-m "not provisional"`): 138 passed, 2 skipped; unit tests 26/26. Expected deployed result: full suite 154 passed, 1 skipped, because the HTTPS test runs against an https URL. Through the tester (non-provisional plan, 140 tests): 139 pass, 1 skip.
@@ -178,7 +181,7 @@ M3 Deadline calculation and status (activity) │ Changed: yes (new as built) �
 M1 Incident status (state machine) │ Changed: yes │ What changed and why: transitions out of OPEN, NOT_MATERIAL → MATERIAL by a new decision (REQ-08 text, ISSUE-20) and MATERIAL_PENDING_FILING → FILED are now implemented, so the "planned" labels are gone. Every REQ-08 409 is drawn as a self-loop, evidence (201) and edits (405) are noted as allowed in every state, and corrections are a note marked Phase 5. │ Location: §M1, `m1-incident-status.png`
 M2 Information model (ER) │ Changed: yes │ What changed and why: generated from `app/schema.sql`. It adds `decisions` (stored deadline, CHECK deadline-iff-MATERIAL, `corrects_seq` reserved for Phase 5), `decision_evidence` with the composite FK to `evidence (seq, incident_seq)`, and `filings` (one per incident). Triggers now cover six tables. │ Location: §M2, `m2-information-model.png`
 M4 Request check order (activity) │ Changed: yes │ What changed and why: the 501 branch is now only corrections/timeline. It adds the transaction: row lock → evidence ownership (400) → state (409) → insert, and `as_of` validation. │ Location: §M4, `m4-check-order.png`
-A1 Architecture and data flow (component) │ Changed: yes │ What changed and why: the dashed "planned deadline module" is now the real `deadline.py`, called by the route handlers. The database box lists the new tables, and a dashed box marks the Phase 5 operations. │ Location: §A1, `a1-architecture.png`
+A1 Architecture and data flow (component) │ Changed: yes │ What changed and why: the dashed "planned deadline module" is now the real `deadline.py`, called by the route handlers. The database box lists the new tables, and a dashed box marks the Phase 5 operations. Updated 2026-11-19: adds the `incident-clock-frontend` web service (browser → Flask → system API with the key), derived from `frontend/app.py` and `render.yaml`. │ Location: §A1, `a1-architecture.png`
 T1 Cross-team test session (sequence) │ Changed: no │ What changed and why: the tester flow is unchanged; the test plan simply contains more tests. │ Location: §T1, `t1-test-session.png`
 
 ### Q5.2 Model-implementation consistency
@@ -216,20 +219,22 @@ Changed since Phase 2 (Phase 4 increment):
 - Deadline status with `as_of`: PENDING, OVERDUE, NOT_APPLICABLE (REQ-10; AC-07, AC-11).
 - Filing with ON_TIME/LATE and business days late, delivered early (REQ-11; AC-11).
 - REQ-08 state rules with row locking, and append-only triggers on decisions and filings (REQ-08, REQ-07; AC-15, AC-08 partial).
+- Web frontend (`frontend/`, Flask): create an incident, find one by ID, view it with its evidence, and add evidence. It enforces REQ-14 timestamps on input (explicit UTC offset, never assumed), shows times in UTC with Eastern Time, shows live character limits, has no edit or delete controls (REQ-07), and keeps the API key on the server. It uses only the pod contract, so the API is unchanged. Deployable as `incident-clock-frontend` via `render.yaml`.
 
 Remaining incomplete:
 - Corrections and decision history (REQ-06; AC-08 history steps, blocked also on ISSUE-05/10) — Phase 5.
 - Timeline and evidence summary (REQ-12; AC-12, AC-13) — Phase 5.
 - Correction-related state rules (REQ-08: correction while FILED) — Phase 5.
 - AC-02 count check (ISSUE-01) and AC-07/AC-14 inspection halves (manual).
-- Deployed-service verification of all Phase 4 results **[unless done before submission]**.
+- Deployed-service verification of all Phase 4 results (needs the deployed key; see Q4.5) **[unless done before submission]**.
+- The web frontend covers only Phase 3 operations; decisions, deadline status and filing are available through the API and `/docs`, but not yet in the UI (LIM-15).
 
 ### Q7.2 Known limitations and defects
 
 LIM-01 │ Free-plan cold start: sleeps after 15 min idle; first request takes ~1 min │ Affects: REQ-15, all operations │ Severity: medium
 Workaround for podmates: `GET /health` and wait for 200 before timing │ Target phase: 6
-LIM-02 │ Free Postgres expires 2026-11-17 (30 days after 2026-10-18); all data and the service's database are lost │ Affects: REQ-15, every operation │ Severity: high
-Workaround for podmates: none; we must upgrade or recreate the database before 2026-11-17 │ Target phase: 5 (before 2026-11-17)
+LIM-02 │ Free Postgres expires 30 days after creation. It expired on 2026-11-17 and was recreated on 2026-11-19 (empty); the new one expires around 2026-12-19, and all data is lost again then │ Affects: REQ-15, every operation │ Severity: high
+Workaround for podmates: do not rely on data surviving past 2026-12-19; re-create test data after a reset │ Target phase: 5 (upgrade to a paid plan, or recreate before 2026-12-19)
 LIM-03 │ Corrections and timeline return 501 │ Affects: REQ-06, REQ-12 │ Severity: high (expected)
 Workaround for podmates: exclude `ac08`/`ac12`/`ac13` cases │ Target phase: 5
 LIM-12 │ Deadlines only for determinations 2023-01-01..2027-12-20; otherwise 400 `INVALID_DETERMINED_AT` │ Affects: REQ-09, `POST /decisions` │ Severity: low
@@ -237,6 +242,10 @@ Workaround for podmates: use 2023–2027 dates (all ACs use 2025) │ Target pha
 LIM-13 │ Interim Phase 4 interpretations: no rule on `filedAt` (future or before determination accepted), minimum 1 day late, NOT_APPLICABLE after filing, duplicate `evidenceIds` rejected │ Affects: REQ-08, REQ-10, REQ-11 │ Severity: low
 Workaround for podmates: run `-m "not provisional"`; see ISSUE-18…22 │ Target phase: 5 (after pod v1.1)
 LIM-14 │ `filedAt` timeliness ignores the Regulation S-T 5:30 pm ET cut-off; a filing at 6 pm ET on the deadline day counts ON_TIME │ Affects: REQ-11 │ Severity: low (follows Phase 2 Q3.3: "late is based on the filing date the user enters") │ Workaround for podmates: none │ Target phase: pod decision (ISSUE-18)
+LIM-15 │ The web frontend covers create incident, view incident and add evidence only; no decision, deadline-status or filing screens, and no incident list (contract has no list operation, ISSUE-01; "Recent incidents" is a per-browser cookie) │ Affects: usability, not the pod contract │ Severity: low
+Workaround for podmates: use the API or `/docs` for Phase 4 operations │ Target phase: 5
+LIM-16 │ The deployed web frontend has no login and holds the API key server-side, so anyone with its URL can create incidents and add evidence │ Affects: REQ-13 │ Severity: medium (synthetic data only)
+Workaround for podmates: none needed; do not share the frontend URL outside the pod │ Target phase: 5 (password-protect the frontend, or require each user to enter the key)
 LIM-04 │ `POST /reset` deletes everything for every key holder │ Affects: REQ-14 │ Severity: medium
 Workaround for podmates: announce runs; never test concurrently │ Target phase: 6
 LIM-05 │ Phase 3 interim interpretations (lengths, check order, error codes, unknown fields, future `collectedAt`) │ Affects: REQ-02, REQ-03, REQ-14 │ Severity: low
@@ -258,7 +267,7 @@ The Phase 5 milestone (§6.3) holds, with one change in sequencing and no change
 
 Risk 1 (deadline arithmetic: Eastern Time, day-0 rule, holidays) is reduced. Every AC-09/AC-10 date passes. The calculator agrees with an independent naive counter on all 1,815 determination days from 2023 to 2027, and the holiday list matches the statutory rules. Mutations of each rule were caught (19, 4 and 5 failures). What remains is cross-team agreement on the list (ISSUE-17) and the late-count edge (ISSUE-19), which a podmate run will settle.
 Risk 2 (framework defaults breaking conformance) is reduced further: all new 400/409 bodies validate against the contract `Error` schema, and the 400-before-409 order is tested. It is not closed until a podmate suite exercises the Phase 4 operations.
-New risk D: the database expires on 2026-11-17, during Phase 5 (LIM-02). Resolution: before then, either move to a paid instance or recreate the database and re-run the persistence check. **[TEAM: decide by ~2026-11-10]**.
+New risk D: the database expires 30 days after creation (LIM-02). It materialized: the database expired on 2026-11-17 and the deployed service was down until we recreated it on 2026-11-19, losing all data. The new one expires around 2026-12-19. Resolution: move to a paid instance, or recreate before then and re-run the persistence check **[TEAM: decide before 2026-12-19]**.
 New risk E: corrections can move a deadline after a filing exists or after it has become overdue, and REQ-06/REQ-08 do not say whether a correction is allowed while MATERIAL_PENDING_FILING once overdue. Resolution: raise with the pod with ISSUE-05/10 before Phase 5 tests are written.
 Remaining from Phase 3: New risk A (ISSUE-01/05/10 spec gaps) and New risk C (course-interface definitions, ISSUE-11/12/15) are still unresolved and need the same pod meeting.
 
