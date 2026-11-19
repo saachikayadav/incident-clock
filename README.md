@@ -74,7 +74,13 @@ python -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt
 export API_KEY=test-key DATABASE_URL=postgresql://postgres@localhost:5432/incidentclock BASE_URL=http://localhost:8000
 scripts/serve_local.sh start            # uvicorn on :8000, logs in reports/service.log
+scripts/serve_local.sh stop             # when you're done
 ```
+
+If startup fails with `role "postgres" does not exist` (common with Homebrew Postgres,
+which only creates a role for your macOS user), either create the role once with
+`createuser -s postgres` or connect as yourself:
+`DATABASE_URL=postgresql://localhost:5432/incidentclock`.
 
 ### Web frontend (Flask)
 
@@ -82,14 +88,39 @@ A server-rendered UI in `frontend/` for the operations built so far: create an i
 open one by ID, view its evidence, and add evidence. The Flask app calls the API with
 the key, so the key never reaches the browser and the API needs no CORS.
 
+**Prerequisite:** the API must be running (steps above, or a deployed URL).
+
 ```bash
+# one-time: frontend dependencies (Flask, httpx, tzdata), in the same .venv
 pip install -r frontend/requirements.txt
-export INCIDENT_API_URL=http://localhost:8000 API_KEY=test-key   # FLASK_SECRET_KEY optional
-python frontend/app.py                  # http://127.0.0.1:5001
+
+# each new terminal: activate the venv and set the variables
+. .venv/bin/activate
+export INCIDENT_API_URL=http://localhost:8000 API_KEY=test-key
+python frontend/app.py                  # http://127.0.0.1:5001, Ctrl+C to stop
 ```
 
-The API has no list operation, so "Recent incidents" holds only the incidents this
-browser created or opened.
+The backend runs in the background, so one terminal is enough: start the API with
+`scripts/serve_local.sh start`, then run the frontend in the foreground.
+
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `API_KEY` | yes | - | The API's key (same value the API was started with); sent as `X-API-Key` |
+| `INCIDENT_API_URL` | no | `http://127.0.0.1:8000` | API base URL; must be `https://` unless it is localhost (REQ-13) |
+| `FLASK_SECRET_KEY` | no | random per start | Signs the session cookie; without it, "Recent incidents" clears on restart |
+| `FRONTEND_PORT` | no | `5001` | Port for the frontend (5000 is taken by AirPlay on macOS) |
+
+Notes:
+
+- `python frontend/app.py` starts Flask's development server with debug on. It is for
+  local use only, not for deployment.
+- Times are entered as local time plus an explicit UTC offset (the API refuses timestamps
+  without one) and shown in UTC with Eastern Time in parentheses.
+- The API has no list operation, so "Recent incidents" holds only the incidents this
+  browser created or opened. It lives in a browser cookie, so after `POST /reset` it can
+  still list IDs that no longer exist.
+- If the page shows **API unreachable**, check that the API is running and that
+  `INCIDENT_API_URL` and `API_KEY` match it.
 
 ## Test any team's service (no code changes)
 
