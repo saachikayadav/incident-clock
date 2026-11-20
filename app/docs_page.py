@@ -41,7 +41,6 @@ DOCS_HTML = f"""<!doctype html>
     <code>/health</code> needs the API key: click <strong>Authorize</strong>, paste it into
     <code>X-API-Key</code>, then use <strong>Try it out</strong>. Switch between the pod contract and
     the course testing endpoints with the selector at the top right.
-    Operations planned for Phases 4&ndash;5 answer <code>501 NOT_IMPLEMENTED</code>.
   </div>
   <div id="swagger-ui"></div>
   <script src="{_CDN}/swagger-ui-bundle.js" integrity="{_SRI["bundle"]}" crossorigin="anonymous"></script>

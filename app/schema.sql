@@ -1,9 +1,10 @@
--- IncidentClock persistent schema (Phase 4).
+-- IncidentClock persistent schema (Phase 5).
 -- Append-only: rows are never updated or deleted by the application (REQ-07).
 -- Row-level triggers reject UPDATE/DELETE; POST /reset uses TRUNCATE, which does
 -- not fire row triggers (REQ-14 test reset is the only sanctioned removal).
 -- Incident status is NOT stored: it is derived from the current decision and
--- filing (Phase 2, Q3.3). Decisions and filings were added in Phase 4.
+-- filing (Phase 2, Q3.3). Decisions and filings were added in Phase 4; corrections
+-- (decisions with corrects_seq) and the timeline read path in Phase 5.
 
 CREATE TABLE IF NOT EXISTS incidents (
     seq            BIGSERIAL PRIMARY KEY,
@@ -36,7 +37,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS evidence_seq_incident_uq ON evidence (seq, inc
 
 -- Human materiality decisions (REQ-04). The deadline is computed once by app/deadline.py
 -- when the decision is recorded and stored with it, so a later holiday-list change cannot
--- silently move a recorded deadline. corrects_seq is reserved for Phase 5 corrections (REQ-06).
+-- silently move a recorded deadline. A correction (REQ-06) is a new decision row whose
+-- corrects_seq names the decision it supersedes; the superseded row is never changed.
 CREATE TABLE IF NOT EXISTS decisions (
     seq            BIGSERIAL PRIMARY KEY,
     decision_id    TEXT GENERATED ALWAYS AS (
@@ -53,6 +55,8 @@ CREATE TABLE IF NOT EXISTS decisions (
     CHECK ((decision = 'MATERIAL') = (deadline IS NOT NULL))
 );
 CREATE INDEX IF NOT EXISTS decisions_incident_idx ON decisions (incident_seq, seq);
+-- Each decision can be superseded at most once, so the correction history is a single chain.
+CREATE UNIQUE INDEX IF NOT EXISTS decisions_corrects_uq ON decisions (corrects_seq);
 
 CREATE TABLE IF NOT EXISTS decision_evidence (
     decision_seq   BIGINT NOT NULL REFERENCES decisions (seq),
@@ -79,7 +83,7 @@ CREATE TABLE IF NOT EXISTS filings (
     recorded_at       TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
 );
 
--- Audit/history log feeding the REQ-12 timeline (endpoint delivered in Phase 5).
+-- Audit/history log returned by the REQ-12 timeline, in recorded order.
 CREATE TABLE IF NOT EXISTS events (
     seq            BIGSERIAL PRIMARY KEY,
     incident_seq   BIGINT      NOT NULL REFERENCES incidents (seq),

@@ -5,11 +5,13 @@ human materiality decisions, and the four-business-day filing deadline. Course p
 (Model-Based Agentic Software Engineering), implementing the pod's common interface
 **contract v1.0** (`openapi/contract.yaml`).
 
-**Current increment: Phase 4** — human materiality decisions, REQ-08 state rules, the
-four-business-day deadline calculator (Eastern Time, federal holidays), deadline status with
-`as_of`, and filing timeliness, on top of Phase 3's incidents, evidence and the course cross-team
-testing interface (tester service + system `/test/setup` / `/test/report`). Corrections and the
-timeline arrive in Phase 5.
+**Current increment: Phase 5** — corrections (a new decision supersedes the current one, which
+stays in the history, and status and deadline follow the correction) and the incident timeline
+with evidence summary. Every operation of contract v1.0 is now implemented. Earlier increments:
+Phase 4 decisions, REQ-08 state rules, the four-business-day deadline calculator (Eastern Time,
+federal holidays), deadline status with `as_of` and filing timeliness; Phase 3 incidents,
+evidence and the course cross-team testing interface (tester service + system `/test/setup` /
+`/test/report`).
 
 Deployed services (see `render.yaml`):
 
@@ -21,24 +23,28 @@ Deployed services (see `render.yaml`):
 
 ## Status by requirement
 
-| REQ | Capability | Status (Phase 4) | Evidence (tests) |
+| REQ | Capability | Status (Phase 5) | Evidence (tests) |
 |---|---|---|---|
 | REQ-01 | Create incident | complete | AC-01 `test_ac01_*` |
 | REQ-02 | Reject invalid incident | complete¹ | AC-02 `test_ac02_*` |
 | REQ-03 | Add evidence | complete | AC-04, AC-05 |
 | REQ-04 | Record human decision | complete | AC-06, AC-07 |
 | REQ-05 | Reject invalid decision | complete | AC-06 `test_ac06_*` |
-| REQ-07 | No edits/deletes (405) | partial — incidents, decisions, filings; correction history in P5 | `test_req07_*` |
-| REQ-08 | State rules (409) | complete for decisions and filings; correction rules in P5 | AC-15 `test_ac15_*` |
+| REQ-06 | Corrections | complete² | AC-08 `test_ac08_*`, `test_req06_*` |
+| REQ-07 | No edits/deletes (405) | complete for every resource; superseded decisions kept (AC-08 history step: ISSUE-05/10) | `test_req07_*`, `test_ac08_*` |
+| REQ-08 | State rules (409) | complete, including correction while FILED | AC-15 `test_ac15_*`, `test_req08_*` |
 | REQ-09 | Deadline calculation | complete | AC-09, AC-10, `unit_tests/` |
 | REQ-10 | Deadline status | complete | AC-07, AC-11 `test_ac11_*deadline_status*` |
 | REQ-11 | Record filing, timeliness | complete (delivered early, needed for AC-15) | AC-11 |
 | REQ-13 | API-key auth, HTTPS | complete (deployed over HTTPS on Render) | AC-14 `test_ac14_*` |
-| REQ-14 | Error format, reset, RFC 3339/UTC | partial — for delivered ops | AC-01..07, AC-09..11, AC-15, AC-16 |
+| REQ-12 | Timeline, evidence summary | complete² | AC-12, AC-13 `test_ac12_*`, `test_ac13_*`, `test_req12_*` |
+| REQ-14 | Error format, reset, RFC 3339/UTC | complete for every operation | AC-01..07, AC-09..11, AC-15, AC-16, `test_req06_*`, `test_req12_*` |
 | REQ-15 | Persistence, latency | complete locally; deployed latency passed, deployed restart check pending | AC-16, `scripts/persistence_check.py` |
-| REQ-06, REQ-12 | Corrections, timeline | not started (P5); routes return 501 | — |
 
 ¹ "Incident count unchanged" in AC-02 is not testable through contract v1.0 (docs/spec-issues.md ISSUE-01).
+² Interim interpretations: a correction naming a superseded decision is 409 (ISSUE-24);
+`discoveryToDeterminationDays` counts Eastern Time calendar days to the current decision (ISSUE-25;
+AC-13 fixes whole calendar days). AC-08's history step is checked through the timeline (ISSUE-10).
 
 ## Operations
 
@@ -52,7 +58,8 @@ Deployed services (see `render.yaml`):
 | `POST /incidents/{incidentId}/filing` | implemented (Phase 4) |
 | `POST /incidents/{incidentId}/evidence` | implemented |
 | `POST /reset` | implemented |
-| `POST .../corrections`, `GET .../timeline` | 401/404 enforced, otherwise `501 NOT_IMPLEMENTED` (Phase 5) |
+| `POST /incidents/{incidentId}/corrections` | implemented (Phase 5) |
+| `GET /incidents/{incidentId}/timeline` | implemented (Phase 5) |
 | `GET /openapi.yaml` | serves the contract file verbatim (not part of the contract) |
 | `GET /docs` | interactive API docs (Swagger UI): click **Authorize**, paste the key, then **Try it out**. Public page; every API call from it still needs the key |
 | `GET /openapi/system-test-interface.yaml` | the `/test/*` API description, used by `/docs` |
@@ -206,12 +213,17 @@ events. Bodies and `X-API-Key` are never logged. Every response carries `X-Reque
 
 ## Known limitations
 
-- Corrections and timeline return `501` until Phase 5.
+- Interim Phase 5 interpretations (ISSUE-24…26): 409 for a correction naming a superseded decision;
+  `discoveryToDeterminationDays` in Eastern Time calendar days to the current decision; no ordering
+  rule on a correction's `determinedAt`, so a correction can move a passed deadline.
+- No operation returns a superseded decision's fields; the history shows only event references
+  (ISSUE-10).
 - Deadlines are supported for determinations 2023-01-01..2027-12-20 (holiday list range, ISSUE-17).
 - Free plan: 15-minute idle spin-down (~60 s cold start). The free database expires 30 days after
   creation; it expired 2026-11-17, was recreated empty on 2026-11-19, and expires again around 2026-12-19.
-- The web frontend has no Phase 4 screens and no login (anyone with its URL can create incidents).
+- The web frontend has no decision, correction, deadline, filing or timeline screens, and no login
+  (anyone with its URL can create incidents).
 - One test session per system; concurrent runs reset each other's data (docs/spec-issues.md ISSUE-12).
 - AC-02's "count unchanged" check cannot run: contract v1.0 has no list operation (ISSUE-01).
 
-Full list: docs/spec-issues.md and `docs/phase3-report.md` (Q7.2).
+Full list: docs/spec-issues.md, `docs/phase3-report.md` and `docs/phase4-report.md` (Q7.2).

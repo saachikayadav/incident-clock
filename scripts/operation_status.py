@@ -140,8 +140,23 @@ def main() -> None:
             201,
             "DecisionCreated",
             [
+                (
+                    "400",
+                    lambda: api.post(
+                        f"/incidents/{inc}/corrections", json={**decision, "correctsDecisionId": "DEC-UNKNOWN"}
+                    ),
+                    400,
+                ),
                 ("401", lambda: anon.post(f"/incidents/{inc}/corrections", json={}), 401),
                 ("404", lambda: api.post(f"/incidents/{UNKNOWN}/corrections", json={}), 404),
+                # The success probe superseded DEC-001; correcting it again is a stale state (ISSUE-24).
+                (
+                    "409",
+                    lambda: api.post(
+                        f"/incidents/{inc}/corrections", json={**decision, "correctsDecisionId": "DEC-001"}
+                    ),
+                    409,
+                ),
             ],
         ),
         (
