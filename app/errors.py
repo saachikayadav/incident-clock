@@ -37,7 +37,3 @@ def invalid(field: str, reason: str) -> ApiError:
 
 def not_found(what: str, ident: str) -> ApiError:
     return ApiError(404, "NOT_FOUND", f"{what} {ident} does not exist")
-
-
-def not_implemented(operation: str) -> ApiError:
-    return ApiError(501, "NOT_IMPLEMENTED", f"{operation} is scheduled for a later phase")

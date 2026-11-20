@@ -166,6 +166,25 @@ def validate_decision(data: dict[str, Any], *, discovered_at: datetime, now: dat
     return DecisionInput(decision, determined_at, decided_by, rationale, tuple(ids))
 
 
+@dataclass(frozen=True)
+class CorrectionInput:
+    decision: DecisionInput
+    corrects_decision_id: str
+
+
+def validate_correction(
+    data: dict[str, Any], *, discovered_at: datetime, now: datetime | None = None
+) -> CorrectionInput:
+    """REQ-06: a decision body (same rules as REQ-04/REQ-05) plus correctsDecisionId, in contract order.
+
+    Whether correctsDecisionId names this incident's current decision is checked by the caller
+    against the store (400 if it is not a decision of this incident, 409 if it is superseded).
+    """
+    decision = validate_decision(data, discovered_at=discovered_at, now=now)
+    corrects = _text(data, "correctsDecisionId")
+    return CorrectionInput(decision, corrects)
+
+
 def validate_filing(data: dict[str, Any], now: datetime | None = None) -> FilingInput:
     """REQ-11 field rules. The contract states no future/order rule for filedAt (ISSUE-18)."""
     now = now or datetime.now(UTC)

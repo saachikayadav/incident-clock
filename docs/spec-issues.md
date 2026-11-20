@@ -1,7 +1,7 @@
-# Specification issues found while implementing contract v1.0 (Phases 3–4)
+# Specification issues found while implementing contract v1.0 (Phases 3–5)
 
 Contract v1.0 (Phase 2 report §5.1/5.2, transcribed in `openapi/contract.yaml`) is **unchanged**.
-None of the items below has pod agreement yet (Phase 3 items ISSUE-01…16; Phase 4 items ISSUE-17…23 at the end). Each lists this team's interim behavior so
+None of the items below has pod agreement yet (Phase 3 items ISSUE-01…16; Phase 4 items ISSUE-17…23; Phase 5 items ISSUE-24…26 at the end). Each lists this team's interim behavior so
 cross-team results can be interpreted, and the tests that depend on it are marked
 `@pytest.mark.provisional` (or skipped, for ISSUE-01).
 
@@ -15,8 +15,8 @@ cross-team results can be interpreted, and the tests that depend on it are marke
 | ISSUE-06 | REQ-03 | Future check is stated for `discoveredAt` and `determinedAt`; `collectedAt` is silent. | `collectedAt` in the future is accepted. | Divergence possible. | Decide in v1.1. |
 | ISSUE-07 | All POSTs | Behavior for unknown extra JSON fields is unspecified. | Ignored. | Divergence possible. | Decide in v1.1 (ignore recommended). |
 | ISSUE-08 | REQ-13 `/health` | Contract lists no error for `/health`. | 503 `{status: "DATABASE_UNAVAILABLE"}` when the database is unreachable (body still matches `{status}`). | None for healthy services. | Note in v1.1. |
-| ISSUE-09 | Phase sequencing | How a service should answer operations scheduled for later phases is unspecified. | Auth and 404 enforced; otherwise 501 `NOT_IMPLEMENTED`. | Cross-team suites will see 501, not a contract violation of an implemented op. | Pod agrees 501 for phased delivery. |
-| ISSUE-10 | AC-08 | "GET the decision history" — no operation returns history (GET incident returns only `currentDecision`; timeline returns event refs only). | — (Phase 5) | AC-08 unverifiable as written. | Resolve with ISSUE-05 before Phase 5. |
+| ISSUE-09 | Phase sequencing | How a service should answer operations scheduled for later phases is unspecified. | Auth and 404 enforced; otherwise 501 `NOT_IMPLEMENTED`. | Cross-team suites will see 501, not a contract violation of an implemented op. | Pod agrees 501 for phased delivery. Moot for us since Phase 5: no operation returns 501. |
+| ISSUE-10 | AC-08 | "GET the decision history" — no operation returns history (GET incident returns only `currentDecision`; timeline returns event refs only). | Phase 5: superseded decisions stay in the database and appear in `GET /timeline` as `DECISION_RECORDED` then `DECISION_CORRECTED` events (reference IDs only); `currentDecision` shows the latest. No operation returns a superseded decision's fields. | AC-08's "GET the decision history" step can be checked only through the timeline's event sequence. | Resolve with ISSUE-05: add a decision-history read path in v1.1, or reword AC-08 to the timeline. |
 
 ## Course cross-team testing interface (added 2026-10-18)
 
@@ -46,3 +46,13 @@ Found while implementing REQ-04/05/08/09/10/11 against contract v1.0. None has p
 | ISSUE-21 | REQ-04, §5.2 | Duplicate entries in `evidenceIds`, and max lengths for `decidedBy`, `rationale`, `accessionNumber`, are unspecified. | Duplicates → 400 `INVALID_EVIDENCE_IDS`; limits 200 / 5000 / 100 characters. Tests `provisional`. | Divergence possible. | Decide in v1.1 with ISSUE-02. |
 | ISSUE-22 | REQ-10, §5.2 | `DeadlineStatus` for a `FILED` incident: the enum has no FILED value, and "null when not applicable" is the only guidance. | `NOT_APPLICABLE`, `deadline: null`, `businessDays: 0` once filed (the deadline remains on `currentDecision`). | A team returning the deadline or PENDING after filing diverges. | Decide in v1.1. |
 | ISSUE-23 | REQ-08, §6 phasing | AC-15's FILED and OPEN cases need `POST /filing`, which §6.2 schedules for Phase 5, so AC-15 cannot be completed in Phase 4 as planned. | We delivered `POST /filing` (REQ-11) in Phase 4. | A podmate that kept filing in Phase 5 returns 501 for these cases until then. | Pod notes the dependency; no contract change. |
+
+## Phase 5 (corrections, timeline — added 2026-11-20)
+
+Found while implementing REQ-06 and REQ-12 against contract v1.0. None has pod agreement yet.
+
+| ID | Affects | Ambiguity / gap | Interim behavior (this team) | Effect on cross-team testing | Proposed resolution |
+|---|---|---|---|---|---|
+| ISSUE-24 | REQ-06, REQ-08 | REQ-06 says a correction "points to the current decision" but not what happens when it does not. | `correctsDecisionId` that is not a decision of this incident (unknown, another incident's, or any ID on an OPEN incident) → 400 `INVALID_CORRECTS_DECISION_ID`. A decision of this incident that was already superseded → 409 `STATE_CONFLICT` (a stale state, like REQ-08). FILED → 409 (REQ-08). Each decision can be corrected at most once (database `UNIQUE corrects_seq`). The 409-on-superseded test is `provisional`. | A team answering 400 for a superseded target diverges on that one case. | Pod confirms 400 vs 409 in v1.1. |
+| ISSUE-25 | REQ-12, AC-13 | AC-13 settles the unit: discovered Sep 22 14:30 ET, determined Sep 29 10:00 ET → 7, so whole calendar days, not elapsed time (6.8). Still open: which time zone's dates (only differs near midnight), and which determination counts once a decision has been corrected. | Integer calendar days between the Eastern Time dates of `discoveredAt` and the **current** decision's `determinedAt` (the REQ-09 day convention); `null` while no decision exists. AC-13 test is not provisional; the near-midnight and after-correction tests are. | A team using UTC dates or the first decision diverges only in those cases. | Pod confirms Eastern dates and the current decision in v1.1. |
+| ISSUE-26 | REQ-06, REQ-09, REQ-11 | A correction's `determinedAt` has no ordering rule relative to the decision it corrects. Phase 2 Q3.3 says the deadline "can move if the determination time was entered wrong", but not whether it may move after it has passed. | Same field rules as a decision (not future, not before discovery); no ordering rule. The deadline is recomputed from the correction's own `determinedAt` (REQ-06, Q3.3), so a correction can turn an OVERDUE incident back into PENDING. | Divergence possible where a team requires a later `determinedAt` or keeps the original deadline. | Decide in v1.1; consider requiring `determinedAt` ≥ the corrected decision's. |

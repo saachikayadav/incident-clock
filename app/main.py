@@ -1,4 +1,4 @@
-"""IncidentClock web service - pod common interface, Phase 4 increment.
+"""IncidentClock web service - pod common interface, Phase 5 increment.
 
 Request flow:  HTTP -> observability/auth middleware (request id, timing, 401)
                -> route handler (404 existence check -> 400 body validation)
@@ -7,10 +7,10 @@ Request flow:  HTTP -> observability/auth middleware (request id, timing, 401)
                -> JSON response.
 
 Check order (Phase 2 Model 4, as implemented): 401 -> 405 (method) -> 404 -> 400 -> 409.
-Phase 4 adds decisions (REQ-04/05/08/09), deadline status (REQ-10) and, so the REQ-08
-state rules can be exercised end to end, filings (REQ-11). Corrections and the timeline
-(Phase 5) are routed and authenticated, return 404 for an unknown incident, and otherwise
-return 501 NOT_IMPLEMENTED.
+Phase 4 added decisions (REQ-04/05/08/09), deadline status (REQ-10) and filings (REQ-11).
+Phase 5 adds corrections (REQ-06: a new decision supersedes the current one, which stays in
+the history) and the timeline with evidence summary (REQ-12). Every contract operation is
+now implemented.
 
 Course cross-team testing interface (system side): POST /test/setup prepares a session
 (clears project data, starts per-session code coverage) and GET /test/report returns
@@ -38,13 +38,14 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import coverage_session, deadline, logs
 from .config import load_settings
-from .db import StateConflict, Store, UnknownEvidence, status_of
+from .db import StateConflict, Store, UnknownDecision, UnknownEvidence, status_of
 from .docs_page import DOCS_HTML
-from .errors import ApiError, error_response, invalid, not_found, not_implemented
+from .errors import ApiError, error_response, invalid, not_found
 from .validation import (
     parse_as_of,
     parse_json_object,
     to_utc,
+    validate_correction,
     validate_decision,
     validate_evidence,
     validate_filing,
@@ -370,17 +371,84 @@ def create_app() -> FastAPI:
             },
         )
 
-    # ---- Phase 5 operations: routed, authenticated, 404-aware, not yet implemented
+    # ---- Phase 5: corrections, timeline ------------------------------------
 
     @app.post("/incidents/{incidentId}/corrections")
-    async def record_correction(incidentId: str) -> JSONResponse:
-        await require_incident(incidentId)
-        raise not_implemented("POST /incidents/{incidentId}/corrections")
+    async def record_correction(incidentId: str, request: Request) -> JSONResponse:
+        seq = await require_incident(incidentId)  # 404 before 400
+        data = parse_json_object(await request.body())
+        state = await run_in_threadpool(store.incident_state, seq)
+        cor = validate_correction(data, discovered_at=state["discovered_at"], now=datetime.now(UTC))
+        dec = cor.decision
+        due = None
+        if dec.decision == "MATERIAL":
+            # REQ-06: the deadline follows the correcting decision's own determination date.
+            try:
+                due = deadline.filing_deadline(dec.determined_at)
+            except deadline.OutsideCalendar as exc:
+                raise invalid("determinedAt", str(exc)) from None
+        try:
+            row = await run_in_threadpool(store.record_correction, seq, cor, due)
+        except UnknownEvidence as exc:
+            raise invalid(
+                "evidenceIds", "must reference evidence of this incident; not found: " + ", ".join(exc.evidence_ids)
+            ) from None
+        except UnknownDecision as exc:
+            raise invalid(
+                "correctsDecisionId", f"must reference a decision of this incident; not found: {exc.decision_id}"
+            ) from None
+        except StateConflict as exc:
+            raise ApiError(409, "STATE_CONFLICT", exc.message) from None
+        logs.log(
+            "info",
+            "decision_corrected",
+            incident_id=incidentId,
+            decision_id=row["decision_id"],
+            corrects=cor.corrects_decision_id,
+            decision=dec.decision,
+            determined_date_et=deadline.eastern_date(dec.determined_at).isoformat(),
+            deadline=None if due is None else due.isoformat(),
+        )
+        return JSONResponse(
+            status_code=201,
+            content={
+                "decisionId": row["decision_id"],
+                "status": row["status"],
+                "deadline": None if due is None else due.isoformat(),
+            },
+        )
 
     @app.get("/incidents/{incidentId}/timeline")
     async def timeline(incidentId: str) -> JSONResponse:
-        await require_incident(incidentId)
-        raise not_implemented("GET /incidents/{incidentId}/timeline")
+        seq = await require_incident(incidentId)
+        t = await run_in_threadpool(store.timeline, seq)
+        counts = t["evidence_counts"]
+        days = None
+        if t["determined_at"] is not None:
+            # Calendar days between the Eastern Time dates, the same day convention as the
+            # REQ-09 deadline (docs/spec-issues.md ISSUE-25).
+            days = (deadline.eastern_date(t["determined_at"]) - deadline.eastern_date(t["discovered_at"])).days
+        return JSONResponse(
+            status_code=200,
+            content={
+                "incidentId": incidentId,
+                "events": [
+                    {
+                        "eventType": e["event_type"],
+                        "recordedAt": to_utc(e["recorded_at"]),
+                        "referenceId": e["reference_id"],
+                    }
+                    for e in t["events"]
+                ],
+                "evidenceCounts": {
+                    "technical": counts.get("TECHNICAL", 0),
+                    "businessImpact": counts.get("BUSINESS_IMPACT", 0),
+                    "legal": counts.get("LEGAL", 0),
+                    "other": counts.get("OTHER", 0),
+                },
+                "discoveryToDeterminationDays": days,
+            },
+        )
 
     return app
 

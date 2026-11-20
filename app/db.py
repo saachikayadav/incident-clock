@@ -16,7 +16,7 @@ from psycopg.rows import DictRow, dict_row
 from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
-from .validation import DecisionInput, EvidenceInput, FilingInput, IncidentInput
+from .validation import CorrectionInput, DecisionInput, EvidenceInput, FilingInput, IncidentInput
 
 _SCHEMA_LOCK_ID = 74210931  # arbitrary constant for pg_advisory_xact_lock
 _PROJECT_TABLES = "filings, decision_evidence, decisions, events, evidence, incidents"
@@ -29,6 +29,14 @@ class StateConflict(Exception):
         super().__init__(message)
         self.status = status
         self.message = message
+
+
+class UnknownDecision(Exception):
+    """correctsDecisionId does not name a decision of this incident (REQ-06, 400)."""
+
+    def __init__(self, decision_id: str) -> None:
+        super().__init__(decision_id)
+        self.decision_id = decision_id
 
 
 class UnknownEvidence(Exception):
@@ -50,9 +58,8 @@ def status_of(decision: str | None, filed: bool) -> str:
     return "OPEN"
 
 
-# Current decision: the latest decision of the incident that no later decision corrects.
-# (Phase 4 has no corrections, so this is the latest decision; the query is already
-# correct for Phase 5, REQ-06.)
+# Current decision: the latest decision of the incident that no later decision corrects
+# (REQ-06). A corrected decision stays in the table, superseded, and remains in the history.
 _CURRENT_DECISION_SQL = """
     SELECT d.seq, d.decision_id, d.decision, d.determined_at, d.decided_by, d.rationale,
            d.deadline, d.recorded_at
@@ -183,20 +190,13 @@ class Store:
         """Insert a new (non-correction) decision, its evidence links and history event atomically.
 
         The incident row is locked first so the state check and the insert cannot interleave
-        with another decision or filing on the same incident. Raises StateConflict (409) or
-        UnknownEvidence (400); in both cases nothing is written.
+        with another decision, correction or filing on the same incident. Raises StateConflict
+        (409) or UnknownEvidence (400); in both cases nothing is written.
         """
         with self.pool.connection() as conn, conn.transaction():
             state = self._state(conn, incident_seq, lock=True)
             # 400 (evidence) before 409 (state), the same order as every other 400 (Model 4).
-            rows = conn.execute(
-                "SELECT seq, evidence_id FROM evidence WHERE incident_seq = %s AND evidence_id = ANY(%s)",
-                (incident_seq, list(dec.evidence_ids)),
-            ).fetchall()
-            found = {r["evidence_id"]: r["seq"] for r in rows}
-            missing = [e for e in dec.evidence_ids if e not in found]
-            if missing:
-                raise UnknownEvidence(missing)
+            found = self._own_evidence(conn, incident_seq, dec.evidence_ids)
             if state["status"] == "MATERIAL_PENDING_FILING":
                 raise StateConflict(
                     state["status"],
@@ -204,27 +204,83 @@ class Store:
                 )
             if state["status"] == "FILED":
                 raise StateConflict(state["status"], "incident is FILED; decisions are not allowed")
-            row = conn.execute(
-                """
-                INSERT INTO decisions (incident_seq, decision, determined_at, decided_by, rationale, deadline)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                RETURNING seq, decision_id, recorded_at
-                """,
-                (incident_seq, dec.decision, dec.determined_at, dec.decided_by, dec.rationale, deadline),
-            ).fetchone()
-            assert row is not None
-            for pos, eid in enumerate(dec.evidence_ids):
-                conn.execute(
-                    "INSERT INTO decision_evidence (decision_seq, position, evidence_seq, incident_seq)"
-                    " VALUES (%s, %s, %s, %s)",
-                    (row["seq"], pos, found[eid], incident_seq),
-                )
-            conn.execute(
-                "INSERT INTO events (incident_seq, event_type, reference_id, recorded_at)"
-                " VALUES (%s, 'DECISION_RECORDED', %s, %s)",
-                (incident_seq, row["decision_id"], row["recorded_at"]),
-            )
+            row = self._insert_decision(conn, incident_seq, dec, deadline, found, None, "DECISION_RECORDED")
         row["status"] = status_of(dec.decision, False)
+        return row
+
+    def record_correction(self, incident_seq: int, cor: CorrectionInput, deadline: Any) -> dict[str, Any]:
+        """REQ-06: insert a decision that supersedes the current one; the old row is kept unchanged.
+
+        Same transaction shape as record_decision. 400s first (UnknownEvidence, UnknownDecision),
+        then 409s (StateConflict): a FILED incident accepts no correction (REQ-08), and the
+        correction must point to the current decision, not one that is already superseded.
+        """
+        dec = cor.decision
+        with self.pool.connection() as conn, conn.transaction():
+            state = self._state(conn, incident_seq, lock=True)
+            found = self._own_evidence(conn, incident_seq, dec.evidence_ids)
+            target = conn.execute(
+                "SELECT seq, decision_id FROM decisions WHERE incident_seq = %s AND decision_id = %s",
+                (incident_seq, cor.corrects_decision_id),
+            ).fetchone()
+            if target is None:
+                raise UnknownDecision(cor.corrects_decision_id)
+            if state["status"] == "FILED":
+                raise StateConflict(state["status"], "incident is FILED; corrections are not allowed")
+            current = state["current_decision"]
+            if current is None or current["seq"] != target["seq"]:
+                raise StateConflict(
+                    state["status"],
+                    f"decision {target['decision_id']} is already superseded; a correction must point to"
+                    f" the current decision {current['decision_id'] if current else '(none)'}",
+                )
+            row = self._insert_decision(conn, incident_seq, dec, deadline, found, target["seq"], "DECISION_CORRECTED")
+        row["status"] = status_of(dec.decision, False)
+        return row
+
+    def _own_evidence(
+        self, conn: Connection[DictRow], incident_seq: int, evidence_ids: tuple[str, ...]
+    ) -> dict[str, int]:
+        """Map each cited evidence ID to its row, or raise UnknownEvidence (400) for any not on this incident."""
+        rows = conn.execute(
+            "SELECT seq, evidence_id FROM evidence WHERE incident_seq = %s AND evidence_id = ANY(%s)",
+            (incident_seq, list(evidence_ids)),
+        ).fetchall()
+        found = {r["evidence_id"]: r["seq"] for r in rows}
+        missing = [e for e in evidence_ids if e not in found]
+        if missing:
+            raise UnknownEvidence(missing)
+        return found
+
+    def _insert_decision(
+        self,
+        conn: Connection[DictRow],
+        incident_seq: int,
+        dec: DecisionInput,
+        deadline: Any,
+        evidence_seqs: dict[str, int],
+        corrects_seq: int | None,
+        event_type: str,
+    ) -> dict[str, Any]:
+        row = conn.execute(
+            """
+            INSERT INTO decisions (incident_seq, decision, determined_at, decided_by, rationale, deadline, corrects_seq)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING seq, decision_id, recorded_at
+            """,
+            (incident_seq, dec.decision, dec.determined_at, dec.decided_by, dec.rationale, deadline, corrects_seq),
+        ).fetchone()
+        assert row is not None
+        for pos, eid in enumerate(dec.evidence_ids):
+            conn.execute(
+                "INSERT INTO decision_evidence (decision_seq, position, evidence_seq, incident_seq)"
+                " VALUES (%s, %s, %s, %s)",
+                (row["seq"], pos, evidence_seqs[eid], incident_seq),
+            )
+        conn.execute(
+            "INSERT INTO events (incident_seq, event_type, reference_id, recorded_at) VALUES (%s, %s, %s, %s)",
+            (incident_seq, event_type, row["decision_id"], row["recorded_at"]),
+        )
         return row
 
     # ---- filings (REQ-11, REQ-08) ------------------------------------------
@@ -261,6 +317,32 @@ class Store:
                 (incident_seq, row["filing_id"], row["recorded_at"]),
             )
         return row
+
+    # ---- timeline (REQ-12) -------------------------------------------------
+
+    def timeline(self, incident_seq: int) -> dict[str, Any]:
+        """History events in recorded order, evidence counts by category, and the times that
+        discoveryToDeterminationDays is computed from (discovery, current decision)."""
+        with self.pool.connection() as conn:
+            events = conn.execute(
+                "SELECT event_type, recorded_at, reference_id FROM events WHERE incident_seq = %s ORDER BY seq",
+                (incident_seq,),
+            ).fetchall()
+            counts = {
+                r["category"]: int(r["n"])
+                for r in conn.execute(
+                    "SELECT category, count(*) AS n FROM evidence WHERE incident_seq = %s GROUP BY category",
+                    (incident_seq,),
+                ).fetchall()
+            }
+            state = self._state(conn, incident_seq)
+        current = state["current_decision"]
+        return {
+            "events": events,
+            "evidence_counts": counts,
+            "discovered_at": state["discovered_at"],
+            "determined_at": None if current is None else current["determined_at"],
+        }
 
     # ---- evidence --------------------------------------------------------
 

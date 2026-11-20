@@ -1,14 +1,14 @@
-# IncidentClock — system models (as delivered, Phase 4)
+# IncidentClock — system models (as delivered, Phase 5)
 
-These models describe the code in this repository at the Phase 4 increment. A box appears
-only if the matching component exists in code; planned Phase 5 elements are drawn dashed
-and labelled "planned". GitHub renders the Mermaid blocks directly.
+These models describe the code in this repository at the Phase 5 increment. A box appears
+only if the matching component exists in code; every operation of contract v1.0 is now
+implemented, so no element is drawn as planned. GitHub renders the Mermaid blocks directly.
 
 Source of truth for each model:
 
 | Model | Type | Derived from |
 |---|---|---|
-| M1 Incident status | State machine | `status_of()` + `record_decision()`/`record_filing()` state checks in `app/db.py`; Phase 2 Model 1, REQ-08 |
+| M1 Incident status | State machine | `status_of()` + `record_decision()`/`record_correction()`/`record_filing()` state checks in `app/db.py`; Phase 2 Model 1, REQ-06, REQ-08 |
 | M2 Information model | ER / schema | `app/schema.sql` (tables, keys, checks, triggers) |
 | M3 Deadline calculation | Activity | `app/deadline.py` (`filing_deadline`, `deadline_status`, `days_late`) |
 | M4 Request check order | Activity | `_observe` middleware + handlers in `app/main.py`; 409 inside the Store transaction |
@@ -37,13 +37,12 @@ flowchart LR
 
   subgraph SYS["Render web service: incident-clock (Docker)"]
     MW["Middleware _observe<br/>request id · X-API-Key check (401)<br/>timing · JSON log line"]
-    H["Route handlers (app/main.py)<br/>404 existence → 400 validation<br/>decisions · deadline-status · filing"]
+    H["Route handlers (app/main.py)<br/>404 existence → 400 validation<br/>decisions · corrections · deadline-status<br/>filing · timeline"]
     TI["/test/setup · /test/report<br/>(app/main.py)"]
     CV["coverage_session.py<br/>coverage.py, sys.monitoring core"]
     V["validation.py<br/>RFC 3339 + offset, field rules"]
     S["Store (app/db.py)<br/>psycopg pool, INSERT-only<br/>row lock → 409 state check → INSERT"]
     D["deadline.py<br/>ET date · federal holiday list<br/>deadline · status · days late"]
-    C["corrections · timeline<br/>(planned, Phase 5: 501)"]
   end
 
   DB[("Render Postgres 16<br/>incidents · evidence · decisions · decision_evidence<br/>filings · events (append-only) · test_sessions")]
@@ -72,10 +71,6 @@ flowchart LR
   GH --> TS
   GH --> FE
   H --> D
-  H -.-> C
-
-  classDef planned stroke-dasharray: 5 5,color:#888;
-  class C planned;
 ```
 
 **Responsibilities retained outside the system:** materiality judgment (disclosure committee),
@@ -133,15 +128,18 @@ stateDiagram-v2
   NOT_MATERIAL --> MATERIAL_PENDING_FILING : POST decisions MATERIAL (201) [ISSUE-20]
   NOT_MATERIAL --> NOT_MATERIAL : POST decisions NOT_MATERIAL (201)
   MATERIAL_PENDING_FILING --> FILED : POST filing (201, ON_TIME / LATE)
-  MATERIAL_PENDING_FILING --> MATERIAL_PENDING_FILING : POST decisions → 409
-  FILED --> FILED : POST decisions → 409 · POST filing → 409
+  MATERIAL_PENDING_FILING --> MATERIAL_PENDING_FILING : POST decisions → 409 · POST corrections MATERIAL (201, new deadline)
+  MATERIAL_PENDING_FILING --> NOT_MATERIAL : POST corrections NOT_MATERIAL (201, deadline null)
+  NOT_MATERIAL --> MATERIAL_PENDING_FILING : POST corrections MATERIAL (201, deadline from correction)
+  FILED --> FILED : POST decisions / corrections → 409 · POST filing → 409
   OPEN --> OPEN : POST filing → 409
   NOT_MATERIAL --> NOT_MATERIAL : POST filing → 409
 
   note right of MATERIAL_PENDING_FILING
-    Corrections (REQ-06) are planned for Phase 5 and
-    return 501 now; they will be the only way to
-    change a MATERIAL decision before filing.
+    A correction must name the current decision:
+    400 if it is not a decision of this incident,
+    409 if it was already superseded (ISSUE-24).
+    The superseded decision stays in the history.
   end note
   note left of OPEN
     POST evidence → 201 in every state.
@@ -162,7 +160,7 @@ erDiagram
   DECISIONS ||--|{ DECISION_EVIDENCE : "cites (>=1)"
   EVIDENCE ||--o{ DECISION_EVIDENCE : "cited by (FK seq, incident_seq)"
   DECISIONS ||--o| FILINGS : "deadline basis"
-  DECISIONS |o--o| DECISIONS : "corrects_seq (Phase 5)"
+  DECISIONS |o--o| DECISIONS : "corrects_seq (supersedes, UNIQUE)"
 
   INCIDENTS {
     bigint seq PK
@@ -192,7 +190,7 @@ erDiagram
     text decided_by
     text rationale
     date deadline "CHECK: set iff MATERIAL"
-    bigint corrects_seq FK "null until Phase 5"
+    bigint corrects_seq FK "null for a first decision; UNIQUE"
     timestamptz recorded_at
   }
   DECISION_EVIDENCE {
@@ -234,6 +232,8 @@ Invariants enforced by the database, not only the application:
 - `decisions.deadline` is non-null exactly when the decision is MATERIAL; the date is computed
   once by `app/deadline.py` and stored, so a later holiday-list change cannot move it.
 - One filing per incident (`UNIQUE incident_seq`).
+- A decision is superseded at most once (`UNIQUE corrects_seq`), so corrections form one chain;
+  the current decision is the one no other decision corrects.
 - `POST /reset` uses `TRUNCATE ... RESTART IDENTITY`, which bypasses row triggers (REQ-14).
 
 `test_sessions` is not cleared by `POST /reset` or `/test/setup`, so a session ID can never be reused.
@@ -291,21 +291,21 @@ flowchart TD
   X -- "no: /health, /reset, /test/*" --> OK
   X -- yes --> F{Incident exists?}
   F -- no --> E404b[404 NOT_FOUND]
-  F -- yes --> I{corrections or timeline?<br/>Phase 5}
-  I -- yes --> E501[501 NOT_IMPLEMENTED]
-  I -- no --> B{Body / as_of valid?<br/>incl. determinedAt >= discoveredAt}
+  F -- yes --> B{Body / as_of valid?<br/>incl. determinedAt >= discoveredAt}
   B -- no --> E400["400 INVALID_&lt;FIELD&gt; / INVALID_BODY"]
   B -- yes --> T["BEGIN; SELECT incident FOR UPDATE"]
-  T --> EV{decisions: every evidenceId<br/>belongs to this incident?}
+  T --> EV{decisions / corrections: every evidenceId<br/>belongs to this incident?}
   EV -- no --> E400b["400 INVALID_EVIDENCE_IDS, ROLLBACK"]
-  EV -- yes --> S{State allows it?<br/>REQ-08}
+  EV -- yes --> CD{corrections: correctsDecisionId<br/>is a decision of this incident?}
+  CD -- no --> E400c["400 INVALID_CORRECTS_DECISION_ID, ROLLBACK"]
+  CD -- yes --> S{State allows it?<br/>REQ-08; correction names<br/>the current decision}
   S -- no --> E409[409 STATE_CONFLICT, ROLLBACK]
   S -- yes --> W[(INSERT record + event; COMMIT)]
   W --> OK[201 / 200 + JSON]
-  E401 & E405 & E404a & E404b & E501 & E400 & E409 & E400b & OK --> L[One JSON log line:<br/>status, latency_ms, error_code, version]
+  E401 & E405 & E404a & E404b & E400 & E409 & E400b & E400c & OK --> L[One JSON log line:<br/>status, latency_ms, error_code, version]
 ```
 
 Every 400 precedes every 409 (ISSUE-03): field validation runs before the transaction, and the
-evidence-ownership check runs inside it, after the incident row is locked but before the state
-check. The lock serializes concurrent decisions and filings on one incident, so the state that was
+evidence-ownership and corrected-decision checks run inside it, after the incident row is locked
+but before the state check. The lock serializes concurrent decisions, corrections and filings on one incident, so the state that was
 checked is the state the insert commits against.
