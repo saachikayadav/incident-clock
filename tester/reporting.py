@@ -84,6 +84,40 @@ def system_coverage(results: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+# ---- model coverage (own system only; course interface, Phase 5) -------------
+DESIGN_FILE = Path(__file__).resolve().parent / "design_requirements.json"
+
+
+def load_design(path: Path = DESIGN_FILE) -> dict[str, Any]:
+    data: dict[str, Any] = json.loads(path.read_text())
+    return data
+
+
+def function_name(test_id: str) -> str:
+    """'test_x.py::test_name[param]' -> 'test_name'."""
+    return test_id.split("::")[-1].split("[")[0]
+
+
+def model_coverage(results: list[dict[str, Any]], version: str, design: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Design requirements of this milestone evaluated by the suite (a mapped test passed or failed)."""
+    design = design or load_design()
+    evaluated = {function_name(r["test_id"]) for r in results if r["outcome"] in ("pass", "fail")}
+    reqs = design["requirements"]
+    covered = sorted(r["id"] for r in reqs if evaluated & set(r["tests"]))
+    ref = version if version and version != "dev" else "main"
+    return {
+        "covered": len(covered),
+        "total": len(reqs),
+        "basis": (
+            f"Design requirements DR-01..DR-{len(reqs):02d} of {design['design_version']}; a requirement counts "
+            "when at least one test mapped to it was executed and evaluated (pass or fail). Mapping: "
+            + design["mapping_url"].format(version=ref)
+            + ". Covered: "
+            + (", ".join(covered) or "none")
+        ),
+    }
+
+
 def code_coverage(system_report: dict[str, Any] | None, problem: str | None) -> dict[str, Any]:
     if system_report is not None:
         code = system_report.get("coverage", {}).get("code") if isinstance(system_report, dict) else None

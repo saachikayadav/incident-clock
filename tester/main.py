@@ -14,6 +14,11 @@ environment variable (JSON object {"https://base-url": "api-key", ...}). Any oth
 target_url is rejected with 400, so the tester cannot be used to leak keys.
 Sessions and reports live in memory: a restart or free-plan spin-down clears them.
 
+Own system (Phase 5): targets listed in OWN_SYSTEM_URLS (comma-separated base URLs) belong to
+this team. For them the plan is the whole suite, provisional tests included (they check our own
+interim rules), and the report adds coverage.model. Podmates get the non-provisional plan and no
+coverage.model, as the course interface requires for cross-team reports.
+
 Setup resilience: before POST /test/setup the tester polls the target's public GET /health
 (free hosts sleep), and retries setup while the hosting layer answers 502/503/504 or a
 non-JSON 5xx, all within TESTER_SETUP_TIMEOUT_SECONDS. A JSON error from the system itself is
@@ -75,6 +80,10 @@ def load_targets() -> dict[str, str]:
     return {normalize(k): v for k, v in data.items()}
 
 
+def load_own_systems() -> set[str]:
+    return {normalize(u) for u in os.environ.get("OWN_SYSTEM_URLS", "").split(",") if u.strip()}
+
+
 def normalize(url: str) -> str:
     return url.strip().rstrip("/")
 
@@ -104,6 +113,7 @@ class Session:
 
 def create_app() -> FastAPI:
     targets = load_targets()
+    own_systems = load_own_systems()
     sessions: dict[str, Session] = {}
     lock = threading.Lock()
     app = FastAPI(title="IncidentClock tester", docs_url=None, redoc_url=None, openapi_url=None)
@@ -189,7 +199,8 @@ def create_app() -> FastAPI:
                 )
             session.state = "running"
         log("run_start", session_id=session_id, target=session.target_url)
-        report, abort_message = await run_in_threadpool(_run_suite, session, targets[session.target_url])
+        own = session.target_url in own_systems
+        report, abort_message = await run_in_threadpool(_run_suite, session, targets[session.target_url], own)
         with lock:
             session.report = report
             session.state = "aborted" if abort_message else "done"
@@ -297,7 +308,7 @@ def _prepare_target(target: str, key: str, session_id: str) -> tuple[int, dict[s
     }
 
 
-def _run_suite(session: Session, key: str) -> tuple[dict[str, Any], str | None]:
+def _run_suite(session: Session, key: str, own: bool = False) -> tuple[dict[str, Any], str | None]:
     started = time.monotonic()
     started_at = datetime.now(UTC)
     with tempfile.TemporaryDirectory(prefix="tester-") as tmp:
@@ -322,8 +333,7 @@ def _run_suite(session: Session, key: str) -> tuple[dict[str, Any], str | None]:
             "no:cacheprovider",
             "-o",
             "addopts=",
-            "-m",
-            "not provisional",
+            *([] if own else ["-m", "not provisional"]),
             "-q",
             "--no-header",
             "-rN",
@@ -359,11 +369,13 @@ def _run_suite(session: Session, key: str) -> tuple[dict[str, Any], str | None]:
             "code": reporting.code_coverage(system_report, problem),
             "component": component,
             "system": reporting.system_coverage(results),
+            **({"model": reporting.model_coverage(results, VERSION)} if own else {}),
         },
         "summary": reporting.summarize(results),
         "started_at": started_at.isoformat().replace("+00:00", "Z"),
         "duration_seconds": round(time.monotonic() - started, 1),
         "tester_version": VERSION,
+        "plan": "full suite incl. provisional (own system)" if own else "non-provisional (pod-agreed behavior)",
     }
     return report, abort
 

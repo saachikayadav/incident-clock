@@ -29,6 +29,8 @@ services:
     envVars:
       - key: TARGETS
         sync: false            # JSON {"https://<system base URL>": "<api key>", ...}; only these targets are testable
+      - key: OWN_SYSTEM_URLS
+        value: https://incident-clock.onrender.com   # our system: full plan + coverage.model (Phase 5)
 
   - type: web
     name: incident-clock-frontend

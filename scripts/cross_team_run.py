@@ -54,6 +54,11 @@ def main() -> int:
     ap.add_argument("--target", required=True, help="system base URL (no /test suffix)")
     ap.add_argument("--timeout", type=float, default=900)
     ap.add_argument("--strict", action="store_true", help="exit 2 unless every test passed or was skipped")
+    ap.add_argument(
+        "--own",
+        choices=["yes", "no"],
+        help="assert coverage.model is present (own system) or absent (cross-team), per the course interface",
+    )
     args = ap.parse_args()
     tester = args.tester.rstrip("/")
 
@@ -92,6 +97,11 @@ def main() -> int:
         if res["outcome"] in ("fail", "error"):
             print(f"  {res['outcome']:5} {res.get('source', ''):13} {res['test_id']}: {res['message'][:140]}")
     problems = check_report(report)
+    has_model = "model" in (report.get("coverage") or {})
+    if args.own == "yes" and not has_model:
+        problems.append("coverage.model missing from a report on this team's own system")
+    if args.own == "no" and has_model:
+        problems.append("coverage.model present in a cross-team report (must be omitted)")
     for p in problems:
         print(f"  INTERFACE PROBLEM: {p}")
     print(f"saved {path.relative_to(ROOT)}")
