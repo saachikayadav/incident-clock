@@ -65,13 +65,22 @@ jobs:
         run: python scripts/operation_status.py
       - name: system /test/setup and /test/report
         run: SYSTEM_BASE_URL="$BASE_URL" python -m pytest tester_tests/test_system_interface.py -o addopts=""
-      - name: tester end-to-end (course interface - tester -> system, as graders call it)
+      - name: tester end-to-end, own system (full plan + coverage.model)
         env:
           TARGETS: '{"http://127.0.0.1:8000": "ci-test-key"}'
+          OWN_SYSTEM_URLS: http://127.0.0.1:8000
         run: |
           nohup python -m uvicorn tester.main:app --host 127.0.0.1 --port 9000 > reports/tester.log 2>&1 &
           for _ in $(seq 1 30); do curl -sf http://127.0.0.1:9000/health > /dev/null && break; sleep 1; done
-          python scripts/cross_team_run.py --tester http://127.0.0.1:9000 --target http://127.0.0.1:8000 --strict
+          python scripts/cross_team_run.py --tester http://127.0.0.1:9000 --target http://127.0.0.1:8000 --strict --own yes
+          pkill -f "tester.main:app"
+      - name: tester end-to-end, as a podmate sees it (non-provisional plan, no coverage.model)
+        env:
+          TARGETS: '{"http://127.0.0.1:8000": "ci-test-key"}'
+        run: |
+          nohup python -m uvicorn tester.main:app --host 127.0.0.1 --port 9001 > reports/tester-podmate.log 2>&1 &
+          for _ in $(seq 1 30); do curl -sf http://127.0.0.1:9001/health > /dev/null && break; sleep 1; done
+          python scripts/cross_team_run.py --tester http://127.0.0.1:9001 --target http://127.0.0.1:8000 --strict --own no
       - name: service log excerpt
         if: always()
         run: tail -n 40 reports/service.log

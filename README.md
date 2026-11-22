@@ -158,6 +158,10 @@ with `-m "not provisional"`, so CI, local runs and cross-team runs share the sam
   `tester` (abort), `unknown`; `skip` (with reason).
 - Coverage: `code` comes from the target's `/test/report`; `component` = contract operations
   actually reached (ISSUE-11); `system` = AC-01..AC-16 with at least one evaluated test.
+- Model coverage (Phase 5): when the target is in `OWN_SYSTEM_URLS` (our own system), the plan
+  is the full suite including provisional tests, and the report adds `coverage.model`: design
+  requirements DR-01..DR-25 with at least one evaluated mapped test (`tester/design_requirements.json`,
+  table in `docs/design-requirements.md`). Podmate reports omit it, as the course interface requires.
 - Access: the tester sends a key only to targets in its `TARGETS` setting
   (`{"https://system-base": "key"}`); any other `target_url` gets 400.
 - Sessions and reports are in memory: a restart or free-plan spin-down clears them.

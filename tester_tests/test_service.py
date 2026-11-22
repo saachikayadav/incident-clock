@@ -13,11 +13,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 TARGET = "https://target.example.edu/system"
+OWN = "https://ours.example.edu/system"
 
 
 @pytest.fixture()
 def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    monkeypatch.setenv("TARGETS", f'{{"{TARGET}": "k"}}')
+    monkeypatch.setenv("TARGETS", f'{{"{TARGET}": "k", "{OWN}": "k2"}}')
+    monkeypatch.setenv("OWN_SYSTEM_URLS", OWN + "/")
     from tester import main
 
     # Keep wake-up/retry loops fast and offline: healthy target, tiny time budget.
@@ -30,13 +32,14 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setattr(
         main,
         "_run_suite",
-        lambda session, key: (
+        lambda session, key, own=False: (
             {
                 "session_id": session.session_id,
                 "target_url": session.target_url,
                 "results": [],
                 "coverage": {},
                 "summary": {},
+                "own": own,
             },
             None,
         ),
@@ -182,3 +185,13 @@ def test_setup_waits_for_health_before_posting(client: TestClient, monkeypatch: 
     r = client.post("/test/setup", json={"target_url": TARGET})
     assert r.status_code == 201
     assert events == ["health", "health", "health", "setup"]
+
+
+def test_own_system_flag_reaches_suite_only_for_own_targets(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """coverage.model and provisional tests apply only to OWN_SYSTEM_URLS (course interface, Phase 5)."""
+    monkeypatch.setattr(httpx, "post", fake_post(201))
+    for target, own in ((OWN, True), (TARGET, False)):
+        sid = client.post("/test/setup", json={"target_url": target}).json()["session_id"]
+        assert client.post("/test/run", json={"session_id": sid}).json()["own"] is own

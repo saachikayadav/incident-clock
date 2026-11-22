@@ -113,9 +113,15 @@ components:
             code: {$ref: '#/components/schemas/Measure'}
             component: {$ref: '#/components/schemas/Measure'}
             system: {$ref: '#/components/schemas/Measure'}
+            model:
+              $ref: '#/components/schemas/Measure'
+              description: >
+                Phase 5. Present only when the target is this team's own system (OWN_SYSTEM_URLS);
+                omitted from cross-team reports. Design requirements DR-xx evaluated by the suite.
         summary:
           type: object
           description: Additional field - outcome counts
         started_at: {type: string, format: date-time, description: Additional field}
         duration_seconds: {type: number, description: Additional field}
         tester_version: {type: string, description: Additional field - deployed commit}
+        plan: {type: string, description: Additional field - which test plan ran (own system includes provisional tests)}
